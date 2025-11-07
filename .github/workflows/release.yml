@@ -5,7 +5,7 @@ name: Create Release on Push
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   release:
@@ -30,7 +30,7 @@ jobs:
         with:
           branches: |
             [
-              'main'
+              'master'
             ]
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
