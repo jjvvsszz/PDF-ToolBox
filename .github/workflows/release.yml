@@ -1,0 +1,47 @@
+# .github/workflows/release.yml
+
+name: Create Release on Push
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    # Impede que o workflow rode em forks do seu repositório
+    if: github.repository == 'jjvvsszz/PDF-ToolBox'
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Baixa o código do repositório para a máquina virtual da Action
+      # fetch-depth: 0 garante que t0do o histórico de commits seja baixado,
+      # o que é essencial para o semantic-release analisar as versões.
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Configura o Node.js, que é a base da ferramenta semantic-release
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      # 3. Roda a ação principal que faz toda a mágica:
+      # - Analisa os commits
+      # - Calcula a próxima versão
+      # - Gera as notas da release (changelog)
+      # - Cria a tag do Git
+      # - Publica a Release no GitHub
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          # Define a branch que será usada para criar as releases
+          branches: |
+            [
+              'main'
+            ]
+        env:
+          # O GITHUB_TOKEN é um segredo fornecido automaticamente pelo GitHub
+          # para permitir que a Action realize ações no seu repositório.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
