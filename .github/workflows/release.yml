@@ -5,7 +5,7 @@ name: Create Release on Push
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   release:
@@ -39,7 +39,7 @@ jobs:
           # Define a branch que será usada para criar as releases
           branches: |
             [
-              'main'
+              'master'
             ]
         env:
           # O GITHUB_TOKEN é um segredo fornecido automaticamente pelo GitHub
