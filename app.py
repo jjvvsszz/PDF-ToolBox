@@ -3,6 +3,8 @@ import tkinter as tk
 from tkinter import ttk
 from ui_components import UIComponents
 from merger_logic import MergerLogic
+from splitter_logic import SplitterLogic
+from detailed_merger_logic import DetailedMergerLogic  # <--- NOVA IMPORTAÇÃO
 
 
 class PDFToolboxApp:
@@ -14,16 +16,17 @@ class PDFToolboxApp:
 
         self.setup_styles()
 
-        # Container principal que ocupará toda a janela.
-        # As diferentes "views" (menu, merger, etc.) serão exibidas aqui.
         main_container = ttk.Frame(self.root, style='Main.TFrame')
         main_container.pack(fill=tk.BOTH, expand=True)
 
-        # Inicializa a lógica e a UI
+        # Inicializa as lógicas
         self.merger_logic = MergerLogic(self)
+        self.splitter_logic = SplitterLogic(self)
+        self.detailed_logic = DetailedMergerLogic(self)  # <--- INICIALIZE AQUI
+
+        # Inicializa a UI
         self.ui = UIComponents(self.root, self, main_container)
 
-        # Exibe o menu principal ao iniciar a aplicação
         self.ui.show_view('main_menu')
 
     def setup_styles(self):
@@ -52,11 +55,9 @@ class PDFToolboxApp:
                         borderwidth=0, padding=10)
         style.map('Accent.TButton', background=[('active', '#005f9e')])
 
-        # Estilo para os botões do Menu Principal
         style.configure('Menu.TButton', font=self.style_config['font_bold'], padding=(20, 15), width=20)
-
-        # Estilo para o botão "Voltar"
         style.configure('Back.TButton', font=('Segoe UI', 9), padding=8)
+        style.configure('Small.TButton', font=('Segoe UI', 8), padding=2)  # Botão pequeno para ações de item
 
         # Estilo para o switch
         style.configure('Switch.TFrame', background=self.style_config['bg_color'])
