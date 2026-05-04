@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Office → PDF - PDF Toolbox{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📝 Office → PDF</h1>
+    <p>Converta documentos do Office (Word, Excel, PowerPoint, LibreOffice) para PDF. Requer <strong>LibreOffice</strong> instalado no servidor.</p>
+</div>
+
+<div class="upload-area" id="upload-area">
+    <div class="icon">📎</div>
+    <div class="text">Arraste um documento aqui ou <strong>clique para selecionar</strong>
+    <br><small style="color:#8892b0;">Formatos: .docx, .xlsx, .pptx, .odt, .ods, .odp</small></div>
+</div>
+<input type="file" id="file-input" accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp" hidden>
+
+<div class="file-list" id="file-list"></div>
+
+<div class="actions">
+    <button class="btn btn-primary" id="process-btn" data-label="Converter para PDF" onclick="processOfficeToPdf()">Converter para PDF</button>
+    <button class="btn btn-secondary" onclick="location.reload()">Limpar</button>
+</div>
+
+<div class="progress-bar" id="progress-bar">
+    <div class="progress-fill"></div>
+</div>
+<div class="status-message" id="status-message"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const area = document.getElementById("upload-area");
+const input = document.getElementById("file-input");
+const list = document.getElementById("file-list");
+const allowedExts = [".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp"];
+
+area.addEventListener("click", () => input.click());
+area.addEventListener("dragover", (e) => { e.preventDefault(); area.classList.add("dragover"); });
+area.addEventListener("dragleave", () => area.classList.remove("dragover"));
+area.addEventListener("drop", (e) => {
+    e.preventDefault();
+    area.classList.remove("dragover");
+    selectedFiles = [];
+    const file = e.dataTransfer.files[0];
+    if (file) {
+        const ext = "." + file.name.split(".").pop().toLowerCase();
+        if (allowedExts.includes(ext)) {
+            selectedFiles = [file];
+        }
+    }
+    renderFileList(list);
+});
+input.addEventListener("change", () => {
+    selectedFiles = [];
+    if (input.files[0]) {
+        const ext = "." + input.files[0].name.split(".").pop().toLowerCase();
+        if (allowedExts.includes(ext)) {
+            selectedFiles = [input.files[0]];
+        }
+    }
+    renderFileList(list);
+    input.value = "";
+});
+
+function processOfficeToPdf() {
+    if (selectedFiles.length === 0) {
+        const status = document.getElementById("status-message");
+        status.className = "status-message error";
+        status.textContent = "Selecione um documento Office";
+        status.style.display = "block";
+        return;
+    }
+    const fd = new FormData();
+    fd.append("file", selectedFiles[0]);
+    uploadForm("/api/office-to-pdf", fd, "process-btn");
+}
+</script>
+{% endblock %}

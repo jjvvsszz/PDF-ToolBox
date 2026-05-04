@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Mesclar PDFs - PDF Toolbox{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>🔗 Mesclar PDFs</h1>
+    <p>Selecione múltiplos arquivos PDF e junte-os em um único documento. A ordem de mesclagem segue a ordem de seleção.</p>
+</div>
+
+<div class="upload-area" id="upload-area">
+    <div class="icon">📂</div>
+    <div class="text">Arraste PDFs aqui ou <strong>clique para selecionar</strong></div>
+</div>
+<input type="file" id="file-input" accept=".pdf" multiple hidden>
+
+<div class="file-list" id="file-list"></div>
+
+<div class="actions">
+    <button class="btn btn-primary" id="process-btn" data-label="Mesclar PDFs" onclick="processMerge()">Mesclar PDFs</button>
+    <button class="btn btn-secondary" onclick="location.reload()">Limpar</button>
+</div>
+
+<div class="progress-bar" id="progress-bar">
+    <div class="progress-fill"></div>
+</div>
+<div class="status-message" id="status-message"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+setupUploadArea("upload-area", "file-input", "file-list");
+
+function processMerge() {
+    if (selectedFiles.length === 0) {
+        const status = document.getElementById("status-message");
+        status.className = "status-message error";
+        status.textContent = "Selecione pelo menos um arquivo PDF";
+        status.style.display = "block";
+        return;
+    }
+    const fd = getUploadFormData();
+    uploadForm("/api/merge", fd, "process-btn");
+}
+</script>
+{% endblock %}

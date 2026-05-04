@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Comprimir PDF - PDF Toolbox{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📦 Comprimir PDF</h1>
+    <p>Reduza o tamanho do arquivo PDF. Escolha o nível abaixo conforme sua necessidade.</p>
+</div>
+
+<div class="upload-area" id="upload-area">
+    <div class="icon">📉</div>
+    <div class="text">Arraste um PDF aqui ou <strong>clique para selecionar</strong></div>
+</div>
+<input type="file" id="file-input" accept=".pdf" hidden>
+
+<div class="file-list" id="file-list"></div>
+
+<div class="form-group">
+    <label for="level-select">Nível de compressão</label>
+    <div class="level-cards" id="level-cards">
+        <label class="level-card" for="level-light">
+            <input type="radio" name="level" value="light" id="level-light">
+            <span class="level-icon">🌿</span>
+            <span class="level-name">Leve</span>
+            <span class="level-desc">Redução sutil (~15-25%). Mantém praticamente toda a qualidade visual. Ideal para documentos que precisam ficar muito nítidos.</span>
+        </label>
+        <label class="level-card selected" for="level-normal">
+            <input type="radio" name="level" value="normal" id="level-normal" checked>
+            <span class="level-icon">⚖️</span>
+            <span class="level-name">Normal</span>
+            <span class="level-desc">Redução moderada (~40-55%). Bom equilíbrio entre tamanho e qualidade. Recomendado para a maioria dos casos.</span>
+        </label>
+        <label class="level-card" for="level-extreme">
+            <input type="radio" name="level" value="extreme" id="level-extreme">
+            <span class="level-icon">🔥</span>
+            <span class="level-name">Extremo</span>
+            <span class="level-desc">Máxima compressão (~70-85%). Usa detecção inteligente de fotos vs texto. Fotos ficam reduzidas, texto usa CCITT G4 (nítido).</span>
+        </label>
+    </div>
+</div>
+
+<div class="actions">
+    <button class="btn btn-primary" id="process-btn" data-label="Comprimir PDF" onclick="processCompress()">Comprimir PDF</button>
+    <button class="btn btn-secondary" onclick="location.reload()">Limpar</button>
+</div>
+
+<div class="progress-bar" id="progress-bar">
+    <div class="progress-fill"></div>
+</div>
+<div class="status-message" id="status-message"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const area = document.getElementById("upload-area");
+const input = document.getElementById("file-input");
+const list = document.getElementById("file-list");
+
+area.addEventListener("click", () => input.click());
+area.addEventListener("dragover", (e) => { e.preventDefault(); area.classList.add("dragover"); });
+area.addEventListener("dragleave", () => area.classList.remove("dragover"));
+area.addEventListener("drop", (e) => {
+    e.preventDefault();
+    area.classList.remove("dragover");
+    selectedFiles = [];
+    if (e.dataTransfer.files[0] && e.dataTransfer.files[0].name.endsWith(".pdf")) {
+        selectedFiles = [e.dataTransfer.files[0]];
+    }
+    renderFileList(list);
+});
+input.addEventListener("change", () => {
+    selectedFiles = [];
+    if (input.files[0] && input.files[0].name.endsWith(".pdf")) {
+        selectedFiles = [input.files[0]];
+    }
+    renderFileList(list);
+    input.value = "";
+});
+
+document.querySelectorAll("input[name='level']").forEach(radio => {
+    radio.addEventListener("change", () => {
+        document.querySelectorAll(".level-card").forEach(c => c.classList.remove("selected"));
+        radio.closest(".level-card").classList.add("selected");
+    });
+});
+
+function processCompress() {
+    if (selectedFiles.length === 0) {
+        const status = document.getElementById("status-message");
+        status.className = "status-message error";
+        status.textContent = "Selecione um arquivo PDF";
+        status.style.display = "block";
+        return;
+    }
+    const level = document.querySelector("input[name='level']:checked").value;
+    const fd = new FormData();
+    fd.append("file", selectedFiles[0]);
+    fd.append("level", level);
+    uploadForm("/api/compress", fd, "process-btn");
+}
+</script>
+{% endblock %}

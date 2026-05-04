@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Imagens → PDF - PDF Toolbox{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📸 Imagens → PDF</h1>
+    <p>Junte várias imagens (JPG, PNG, BMP, TIFF) em um único arquivo PDF. Arraste para reordenar ou use os botões ▲▼.</p>
+</div>
+
+<div class="upload-area" id="upload-area">
+    <div class="icon">🖼️</div>
+    <div class="text">Arraste imagens aqui ou <strong>clique para selecionar</strong></div>
+</div>
+<input type="file" id="file-input" accept="image/*" multiple hidden>
+
+<div id="preview-grid" class="thumb-grid" style="display:none;"></div>
+
+<div class="actions">
+    <button class="btn btn-primary" id="process-btn" data-label="Criar PDF" onclick="processImagesToPdf()">Criar PDF</button>
+    <button class="btn btn-secondary" onclick="location.reload()">Limpar</button>
+</div>
+
+<div class="progress-bar" id="progress-bar">
+    <div class="progress-fill"></div>
+</div>
+<div class="status-message" id="status-message"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const area = document.getElementById("upload-area");
+const input = document.getElementById("file-input");
+const grid = document.getElementById("preview-grid");
+const status = document.getElementById("status-message");
+
+area.addEventListener("click", () => input.click());
+area.addEventListener("dragover", (e) => { e.preventDefault(); area.classList.add("dragover"); });
+area.addEventListener("dragleave", () => area.classList.remove("dragover"));
+area.addEventListener("drop", (e) => {
+    e.preventDefault();
+    area.classList.remove("dragover");
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+    for (const f of files) {
+        if (!selectedFiles.find(x => x.name === f.name && x.size === f.size)) {
+            selectedFiles.push(f);
+        }
+    }
+    renderPreview();
+});
+input.addEventListener("change", () => {
+    const files = Array.from(input.files).filter(f => f.type.startsWith("image/"));
+    for (const f of files) {
+        if (!selectedFiles.find(x => x.name === f.name && x.size === f.size)) {
+            selectedFiles.push(f);
+        }
+    }
+    renderPreview();
+    input.value = "";
+});
+
+function renderPreview() {
+    grid.innerHTML = "";
+    if (selectedFiles.length === 0) {
+        grid.style.display = "none";
+        return;
+    }
+    grid.style.display = "grid";
+
+    selectedFiles.forEach((file, i) => {
+        const url = URL.createObjectURL(file);
+        const card = document.createElement("div");
+        card.className = "thumb-card";
+        card.innerHTML = `
+            <img src="${url}" alt="${file.name}" style="width:100%;max-height:180px;object-fit:cover;">
+            <div class="page-label">${i + 1}. ${file.name} (${formatSize(file.size)})</div>
+            <div class="thumb-actions">
+                <button class="thumb-btn" onclick="moveImage(${i}, 'up')" ${i === 0 ? "disabled" : ""}>▲</button>
+                <button class="thumb-btn" onclick="moveImage(${i}, 'down')" ${i === selectedFiles.length - 1 ? "disabled" : ""}>▼</button>
+                <button class="thumb-btn delete" onclick="removeImage(${i})">✕</button>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+function moveImage(index, direction) {
+    const newIndex = direction === "up" ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= selectedFiles.length) return;
+    [selectedFiles[index], selectedFiles[newIndex]] = [selectedFiles[newIndex], selectedFiles[index]];
+    renderPreview();
+}
+
+function removeImage(index) {
+    selectedFiles.splice(index, 1);
+    renderPreview();
+}
+
+function processImagesToPdf() {
+    if (selectedFiles.length === 0) {
+        status.className = "status-message error";
+        status.textContent = "Selecione pelo menos uma imagem";
+        status.style.display = "block";
+        return;
+    }
+    const fd = new FormData();
+    for (const f of selectedFiles) {
+        fd.append("files", f);
+    }
+    uploadForm("/api/images-to-pdf", fd, "process-btn");
+}
+</script>
+{% endblock %}
