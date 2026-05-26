@@ -1,5 +1,5 @@
 param(
-    [string]$Host = $env:HOST,
+    [string]$BindHost = $env:HOST,
     [string]$Port = $env:PORT,
     [string]$Workers = $env:WORKERS,
     [string]$AppDir = $PSScriptRoot,
@@ -135,7 +135,7 @@ Function Install-NSSM {
     }
 }
 
-if (-not $Host) { $Host = "0.0.0.0" }
+if (-not $BindHost) { $BindHost = "0.0.0.0" }
 if (-not $Port) { $Port = "8000" }
 if (-not $Workers) { $Workers = "4" }
 
@@ -143,7 +143,7 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "=== PDF Toolbox Deploy ==="
 Write-Host "AppDir: $AppDir"
-Write-Host "Host:   $Host"
+Write-Host "Host:   $BindHost"
 Write-Host "Port:   $Port"
 Write-Host "Workers: $Workers"
 
@@ -220,9 +220,9 @@ if ($InstallService) {
         nssm stop $serviceName
     }
 
-    nssm install $serviceName "$uvicornExe" "app.main:app --host $Host --port $Port --workers $Workers" 2>$null
+    nssm install $serviceName "$uvicornExe" "app.main:app --host $BindHost --port $Port --workers $Workers" 2>$null
     nssm set $serviceName AppDirectory $AppDir
-    nssm set $serviceName AppEnvironmentExtra "HOST=$Host`nPORT=$Port`nWORKERS=$Workers"
+    nssm set $serviceName AppEnvironmentExtra "HOST=$BindHost`nPORT=$Port`nWORKERS=$Workers"
     nssm set $serviceName Start SERVICE_AUTO_START
     nssm start $serviceName
 
@@ -232,7 +232,7 @@ if ($InstallService) {
 } else {
     Write-Host ""
     Write-Host "=== To run the app ==="
-    Write-Host "  & `"$uvicornExe`" app.main:app --host $Host --port $Port --workers $Workers"
+    Write-Host "  & `"$uvicornExe`" app.main:app --host $BindHost --port $Port --workers $Workers"
     Write-Host ""
     Write-Host "=== To install as Windows Service ==="
     Write-Host "  .\deploy.ps1 -InstallService"
@@ -240,5 +240,5 @@ if ($InstallService) {
     Write-Host "=== First-time complete setup ==="
     Write-Host "  .\deploy.ps1 -InstallDeps -InstallService"
     Write-Host ""
-    Write-Host "After service install, access: http://${Host}:${Port}"
+    Write-Host "After service install, access: http://${BindHost}:${Port}"
 }
