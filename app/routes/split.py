@@ -1,14 +1,17 @@
+import logging
 import uuid
 import shutil
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 
+from app.config import UPLOADS_DIR
 from app.services.splitter import SplitterService
 
+logger = logging.getLogger("pdf_toolbox.split")
 router = APIRouter()
-UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 
 
 @router.post("/split")
@@ -34,7 +37,6 @@ async def split_pdf(file: UploadFile = File(...)):
                 media_type="application/pdf",
             )
 
-        import zipfile
         zip_path = session_dir / "split_pages.zip"
         with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
             for p in output_paths:
@@ -45,6 +47,7 @@ async def split_pdf(file: UploadFile = File(...)):
             filename="paginas_separadas.zip",
             media_type="application/zip",
         )
-    except Exception as e:
+    except Exception:
+        logger.exception("Erro ao dividir PDF")
         shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)

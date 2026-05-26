@@ -1,3 +1,4 @@
+import logging
 import uuid
 import shutil
 import zipfile
@@ -6,10 +7,11 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
 
+from app.config import UPLOADS_DIR, MAX_FILES
 from app.services.converter import ConverterService
 
+logger = logging.getLogger("pdf_toolbox.convert")
 router = APIRouter()
-UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 
 
 @router.post("/pdf-to-images")
@@ -44,15 +46,18 @@ async def pdf_to_images(file: UploadFile = File(...), format: str = Form("png"))
             filename="pdf_para_imagens.zip",
             media_type="application/zip",
         )
-    except Exception as e:
+    except Exception:
+        logger.exception("Erro ao converter PDF para imagens")
         shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)
 
 
 @router.post("/images-to-pdf")
 async def images_to_pdf(files: list[UploadFile] = File(...)):
     if not files:
         return JSONResponse({"error": "Nenhum arquivo enviado"}, status_code=400)
+    if len(files) > MAX_FILES:
+        return JSONResponse({"error": f"Maximo de {MAX_FILES} arquivos permitidos"}, status_code=400)
 
     session_dir = UPLOADS_DIR / uuid.uuid4().hex
     session_dir.mkdir(parents=True, exist_ok=True)
@@ -73,9 +78,10 @@ async def images_to_pdf(files: list[UploadFile] = File(...)):
             filename=output_path.name,
             media_type="application/pdf",
         )
-    except Exception as e:
+    except Exception:
+        logger.exception("Erro ao converter imagens para PDF")
         shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)
 
 
 @router.post("/office-to-pdf")
@@ -96,7 +102,7 @@ async def office_to_pdf(file: UploadFile = File(...)):
 
         if output_path is None:
             return JSONResponse(
-                {"error": "LibreOffice não encontrado. Instale o LibreOffice no servidor."},
+                {"error": "LibreOffice nao encontrado. Instale o LibreOffice no servidor."},
                 status_code=500,
             )
 
@@ -105,9 +111,10 @@ async def office_to_pdf(file: UploadFile = File(...)):
             filename=output_path.name,
             media_type="application/pdf",
         )
-    except Exception as e:
+    except Exception:
+        logger.exception("Erro ao converter Office para PDF")
         shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)
 
 
 @router.post("/pdf-to-office")
@@ -131,6 +138,7 @@ async def pdf_to_office(file: UploadFile = File(...)):
             filename=output_path.name,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
-    except Exception as e:
+    except Exception:
+        logger.exception("Erro ao converter PDF para DOCX")
         shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)

@@ -1,5 +1,7 @@
 __pycache__/
 .aider*
+.venv/
+.env
+.idea/
 uploads/*
 !uploads/.gitkeep
-.venv/

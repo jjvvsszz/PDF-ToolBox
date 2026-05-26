@@ -1,3 +1,4 @@
+import logging
 import uuid
 import shutil
 from pathlib import Path
@@ -7,10 +8,11 @@ from fastapi.responses import FileResponse, JSONResponse
 import fitz
 from PIL import Image
 
+from app.config import UPLOADS_DIR
 from app.services.splitter import SplitterService
 
+logger = logging.getLogger("pdf_toolbox.extract")
 router = APIRouter()
-UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 
 
 @router.post("/extract")
@@ -36,9 +38,13 @@ async def extract_pages(file: UploadFile = File(...), pages: str = Form(...)):
             filename=output_path.name,
             media_type="application/pdf",
         )
-    except Exception as e:
+    except ValueError as e:
         shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception:
+        logger.exception("Erro ao extrair paginas")
+        shutil.rmtree(str(session_dir), ignore_errors=True)
+        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)
 
 
 @router.post("/extract/preview")
@@ -83,9 +89,13 @@ async def preview_extract(file: UploadFile = File(...), pages: str = Form(...)):
             "total_selected": len(page_nums),
             "pages": result_pages,
         }
-    except Exception as e:
+    except ValueError as e:
         shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception:
+        logger.exception("Erro ao gerar preview de extracao")
+        shutil.rmtree(str(session_dir), ignore_errors=True)
+        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)
 
 
 @router.get("/extract/thumbnail/{session_dir}/{thumb_name}")

@@ -1,3 +1,4 @@
+import logging
 import uuid
 import shutil
 from pathlib import Path
@@ -5,10 +6,11 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
 
+from app.config import UPLOADS_DIR
 from app.services.compressor import CompressorService
 
+logger = logging.getLogger("pdf_toolbox.compress")
 router = APIRouter()
-UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 
 
 @router.post("/compress")
@@ -34,6 +36,7 @@ async def compress_pdf(file: UploadFile = File(...), level: str = Form("normal")
             filename=output_path.name,
             media_type="application/pdf",
         )
-    except Exception as e:
+    except Exception:
+        logger.exception("Erro ao comprimir PDF")
         shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)

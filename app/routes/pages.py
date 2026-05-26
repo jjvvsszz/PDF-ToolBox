@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
-from starlette.templating import _TemplateResponse
+
+from app.config import TEMPLATES_DIR
 
 router = APIRouter()
 
-TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True)
 
 
@@ -63,3 +62,8 @@ async def pdf_to_office_page(request: Request):
 @router.get("/detailed-merge", response_class=HTMLResponse)
 async def detailed_merge_page(request: Request):
     return render("detailed-merge.html", request)
+
+
+@router.get("/remove-blanks", response_class=HTMLResponse)
+async def remove_blanks_page(request: Request):
+    return render("blank-remover.html", request)

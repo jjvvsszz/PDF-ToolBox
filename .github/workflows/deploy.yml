@@ -1,0 +1,58 @@
+name: Deploy to Windows Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      windows_host:
+        description: "Windows Server hostname or IP"
+        required: true
+      windows_user:
+        description: "SSH username"
+        required: true
+      app_dir:
+        description: "Application directory on server"
+        required: true
+        default: "C:\\app\\pdf-toolbox"
+      host:
+        description: "Bind host"
+        required: false
+        default: "0.0.0.0"
+      port:
+        description: "Bind port"
+        required: false
+        default: "8000"
+      workers:
+        description: "Number of workers"
+        required: false
+        default: "4"
+      install_deps:
+        description: "Install system deps (Python, LibreOffice, NSSM)"
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.WINDOWS_SSH_KEY }}
+          known_hosts: ${{ vars.WINDOWS_KNOWN_HOSTS || '' }}
+
+      - name: Copy files to server
+        run: |
+          scp -r ./* ${{ inputs.windows_user }}@${{ inputs.windows_host }}:${{ inputs.app_dir }}/
+
+      - name: Run deploy script
+        run: |
+          $flags = @()
+          if ("${{ inputs.install_deps }}" -eq "true") { $flags += "-InstallDeps" }
+          $cmd = "powershell -ExecutionPolicy Bypass -File `"${{ inputs.app_dir }}\deploy.ps1`" -Host ${{ inputs.host }} -Port ${{ inputs.port }} -Workers ${{ inputs.workers }} -InstallService $flags"
+          ssh ${{ inputs.windows_user }}@${{ inputs.windows_host }} $cmd
+        shell: pwsh
