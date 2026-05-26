@@ -7,11 +7,7 @@ param(
     [switch]$InstallDeps
 )
 
-Function Get-PackageManager {
-    if (Get-Command winget -ErrorAction SilentlyContinue) { return "winget" }
-    if (Get-Command choco -ErrorAction SilentlyContinue) { return "choco" }
-    return $null
-}
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
 
 Function Test-IsAdmin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -19,37 +15,56 @@ Function Test-IsAdmin {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
-Function Install-Chocolatey {
-    Write-Host "Installing Chocolatey (required for dependency management)..."
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-    $env:ChocolateyInstall = "$env:ProgramData\chocolatey"
-    New-Item -ItemType Directory -Force -Path $env:ChocolateyInstall | Out-Null
-    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-    $env:Path = "$env:Path;$env:ChocolateyInstall\bin"
-    if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-        Write-Host "ERROR: Failed to install Chocolatey. Install manually: https://chocolatey.org/install"
-        exit 1
+Function Invoke-Download {
+    param([string]$Url, [string]$OutFile)
+    Write-Host "  Downloading $Url ..."
+    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
+    if (-not (Test-Path $OutFile)) {
+        throw "Download failed: $OutFile not found"
     }
-    Write-Host "Chocolatey installed."
 }
 
 Function Install-Python {
     Write-Host "[Python] Installing..."
-    $pm = Get-PackageManager
 
-    if ($pm -eq "winget") {
-        winget install --id Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements
-    }
-    elseif ($pm -eq "choco") {
-        choco install python311 -y --limit-output
-    }
-    else {
-        Write-Host "  No package manager found. Downloading from python.org..."
-        $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
-        $installer = "$env:TEMP\python-installer.exe"
-        Invoke-WebRequest -Uri $pythonUrl -OutFile $installer -UseBasicParsing
+    # Python 3.11.9 standalone installer (self-contained, includes everything)
+    $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+    $installer = "$env:TEMP\python-installer.exe"
+
+    $installed = $false
+    $errors = @()
+
+    # Method 1: direct download (most reliable on all Windows versions)
+    try {
+        Write-Host "  Downloading from python.org..."
+        Invoke-Download -Url $pythonUrl -OutFile $installer
         Start-Process -FilePath $installer -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait -NoNewWindow
         Remove-Item $installer -Force -ErrorAction SilentlyContinue
+        $installed = $true
+    } catch {
+        $errors += "Direct download: $_"
+    }
+
+    # Method 2: winget
+    if (-not $installed -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Host "  Trying winget..."
+        try {
+            winget install --id Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements
+            $installed = $true
+        } catch {
+            $errors += "winget: $_"
+        }
+    }
+
+    # Method 3: choco
+    if (-not $installed -and (Get-Command choco -ErrorAction SilentlyContinue)) {
+        Write-Host "  Trying chocolatey..."
+        try {
+            choco install python311 -y --limit-output --ignore-dependencies
+            $installed = $true
+        } catch {
+            $errors += "choco: $_"
+        }
     }
 
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
@@ -57,7 +72,9 @@ Function Install-Python {
 
     $py = Get-Command python -ErrorAction SilentlyContinue
     if (-not $py) {
-        Write-Host "ERROR: Python installation failed. Install manually: https://www.python.org/downloads/"
+        Write-Host "ERROR: All Python installation methods failed:"
+        $errors | ForEach-Object { Write-Host "  $_" }
+        Write-Host "Install Python 3.11 manually: https://www.python.org/downloads/"
         exit 1
     }
     Write-Host "[Python] $(python --version)"
@@ -65,73 +82,107 @@ Function Install-Python {
 
 Function Install-LibreOffice {
     Write-Host "[LibreOffice] Installing..."
-    $pm = Get-PackageManager
-
     $libreOfficePath = "$env:ProgramFiles\LibreOffice\program\soffice.exe"
     if (Test-Path $libreOfficePath) {
         Write-Host "[LibreOffice] Already installed at $libreOfficePath"
         return
     }
 
-    if ($pm -eq "winget") {
-        winget install --id TheDocumentFoundation.LibreOffice --silent --accept-package-agreements --accept-source-agreements
-    }
-    elseif ($pm -eq "choco") {
-        choco install libreoffice-fresh -y --limit-output
-    }
-    else {
-        Write-Host "  No package manager found. Downloading from libreoffice.org..."
-        $loUrl = "https://download.documentfoundation.org/libreoffice/stable/24.8.4/win/x86_64/LibreOffice_24.8.4_Win_x86-64.msi"
-        $installer = "$env:TEMP\libreoffice-installer.msi"
-        Invoke-WebRequest -Uri $loUrl -OutFile $installer -UseBasicParsing
+    $loUrl = "https://download.documentfoundation.org/libreoffice/stable/24.8.4/win/x86_64/LibreOffice_24.8.4_Win_x86-64.msi"
+    $installer = "$env:TEMP\libreoffice-installer.msi"
+    $installed = $false
+
+    # Method 1: direct download
+    try {
+        Write-Host "  Downloading from libreoffice.org..."
+        Invoke-Download -Url $loUrl -OutFile $installer
         Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$installer`" /qn /norestart" -Wait -NoNewWindow
         Remove-Item $installer -Force -ErrorAction SilentlyContinue
+        $installed = $true
+    } catch {
+        Write-Host "  Direct download failed: $_"
     }
 
-    if (-not (Test-Path $libreOfficePath)) {
-        Write-Host "WARNING: LibreOffice installation may have failed. Office-to-PDF conversion will not work."
-    } else {
+    # Method 2: winget
+    if (-not $installed -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Host "  Trying winget..."
+        try {
+            winget install --id TheDocumentFoundation.LibreOffice --silent --accept-package-agreements --accept-source-agreements
+            $installed = $true
+        } catch {}
+    }
+
+    # Method 3: choco
+    if (-not $installed -and (Get-Command choco -ErrorAction SilentlyContinue)) {
+        Write-Host "  Trying chocolatey..."
+        try {
+            choco install libreoffice-fresh -y --limit-output
+            $installed = $true
+        } catch {}
+    }
+
+    if (Test-Path $libreOfficePath) {
         Write-Host "[LibreOffice] Installed at $libreOfficePath"
+    } else {
+        Write-Host "WARNING: LibreOffice installation failed. Office-to-PDF will not work."
+        Write-Host "  Install manually: https://www.libreoffice.org/download/"
     }
 }
 
 Function Install-NSSM {
     Write-Host "[NSSM] Installing..."
-    $pm = Get-PackageManager
 
     if (Get-Command nssm -ErrorAction SilentlyContinue) {
         Write-Host "[NSSM] Already installed."
         return
     }
 
-    if ($pm -eq "winget") {
-        winget install --id NSSM.NSSM --silent --accept-package-agreements --accept-source-agreements
-    }
-    elseif ($pm -eq "choco") {
-        choco install nssm -y --limit-output
-    }
-    else {
-        Write-Host "  No package manager found. Downloading from nssm.cc..."
-        $nssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
-        $nssmZip = "$env:TEMP\nssm.zip"
-        $nssmDir = "$env:ProgramFiles\nssm"
-        Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -UseBasicParsing
+    $nssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
+    $nssmZip = "$env:TEMP\nssm.zip"
+    $nssmDir = "$env:ProgramFiles\nssm"
+    $installed = $false
+
+    # Method 1: direct download (NSSM is just a zip with an exe, no installer needed)
+    try {
+        Write-Host "  Downloading from nssm.cc..."
+        Invoke-Download -Url $nssmUrl -OutFile $nssmZip
         Expand-Archive -Path $nssmZip -DestinationPath $nssmDir -Force
         Remove-Item $nssmZip -Force -ErrorAction SilentlyContinue
         $nssmExe = Get-ChildItem -Path $nssmDir -Filter nssm.exe -Recurse | Select-Object -First 1
         if ($nssmExe) {
-            $targetDir = "$env:windir\system32"
-            Copy-Item $nssmExe.FullName $targetDir -Force
+            Copy-Item $nssmExe.FullName "$env:windir\system32" -Force
         }
+        $installed = $true
+    } catch {
+        Write-Host "  Direct download failed: $_"
+    }
+
+    # Method 2: winget
+    if (-not $installed -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Host "  Trying winget..."
+        try {
+            winget install --id NSSM.NSSM --silent --accept-package-agreements --accept-source-agreements
+            $installed = $true
+        } catch {}
+    }
+
+    # Method 3: choco
+    if (-not $installed -and (Get-Command choco -ErrorAction SilentlyContinue)) {
+        Write-Host "  Trying chocolatey..."
+        try {
+            choco install nssm -y --limit-output
+            $installed = $true
+        } catch {}
     }
 
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
     refreshenv -ErrorAction SilentlyContinue
 
-    if (-not (Get-Command nssm -ErrorAction SilentlyContinue)) {
-        Write-Host "WARNING: NSSM installation may have failed. Service registration will not work."
-    } else {
+    if (Get-Command nssm -ErrorAction SilentlyContinue) {
         Write-Host "[NSSM] Installed."
+    } else {
+        Write-Host "WARNING: NSSM installation failed. Service registration will not work."
+        Write-Host "  Install manually: https://nssm.cc/download"
     }
 }
 
@@ -159,10 +210,6 @@ if ($InstallDeps) {
     }
 
     Write-Host "=== Installing system dependencies ==="
-
-    if (-not (Get-PackageManager)) {
-        Install-Chocolatey
-    }
 
     if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
         Install-Python
@@ -228,7 +275,7 @@ if ($InstallService) {
 
     Write-Host ""
     Write-Host "Service '$serviceName' installed and started."
-    Write-Host "http://${Host}:${Port}"
+    Write-Host "http://${BindHost}:${Port}"
 } else {
     Write-Host ""
     Write-Host "=== To run the app ==="
