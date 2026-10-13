@@ -280,6 +280,25 @@ New-Item -ItemType Directory -Force -Path $uploadsDir, $logsDir | Out-Null
 
 $uvicornArgs = "-m uvicorn app.main:app --host $BindHost --port $Port --workers $Workers --proxy-headers"
 
+# Variaveis extras da aplicacao: app.env na pasta do app (KEY=VALUE por linha, fora do Git).
+# Reaplicadas a cada deploy, para nao se perderem quando o servico e reconfigurado.
+$appEnv = @("HOST=$BindHost", "PORT=$Port", "WORKERS=$Workers")
+$appEnvFile = Join-Path $AppDir "app.env"
+if (Test-Path $appEnvFile) {
+    foreach ($line in Get-Content $appEnvFile) {
+        $line = $line.Trim()
+        if (-not $line -or $line.StartsWith("#")) { continue }
+        if ($line -notmatch '^[A-Za-z_][A-Za-z0-9_]*=') {
+            Write-Host "WARNING: ignorando linha invalida em app.env: $line"
+            continue
+        }
+        $name = $line.Split("=", 2)[0]
+        if ($name -in @("HOST", "PORT", "WORKERS")) { continue }
+        $appEnv += $line
+    }
+    Write-Host "app.env: $($appEnv.Count - 3) variavel(is) extra(s)"
+}
+
 if ($InstallService) {
     if (-not (Get-Command nssm -ErrorAction SilentlyContinue)) {
         Write-Host "ERROR: NSSM not found. Run with -InstallDeps or install from https://nssm.cc/download"
@@ -293,7 +312,7 @@ if ($InstallService) {
     Invoke-Native "nssm set Application" { nssm set $serviceName Application "$pythonExe" }
     Invoke-Native "nssm set AppParameters" { nssm set $serviceName AppParameters $uvicornArgs }
     Invoke-Native "nssm set AppDirectory" { nssm set $serviceName AppDirectory $AppDir }
-    Invoke-Native "nssm set AppEnvironmentExtra" { nssm set $serviceName AppEnvironmentExtra "HOST=$BindHost" "PORT=$Port" "WORKERS=$Workers" }
+    Invoke-Native "nssm set AppEnvironmentExtra" { nssm set $serviceName AppEnvironmentExtra @appEnv }
     Invoke-Native "nssm set Start" { nssm set $serviceName Start SERVICE_AUTO_START }
     Invoke-Native "nssm set AppStdout" { nssm set $serviceName AppStdout (Join-Path $logsDir "service.log") }
     Invoke-Native "nssm set AppStderr" { nssm set $serviceName AppStderr (Join-Path $logsDir "service.log") }
