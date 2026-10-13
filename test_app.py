@@ -212,9 +212,15 @@ def test_office_to_pdf_route():
         ("file", ("test.docx", b"dummy",
                   "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
     ])
-    # 503 sem LibreOffice instalado; 422 com LibreOffice (arquivo invalido)
-    assert r.status_code in (503, 422)
-    assert r.json()["error"]
+    if ConverterService._find_soffice() is None:
+        assert r.status_code == 503
+        assert "LibreOffice" in r.json()["error"]
+    else:
+        # O LibreOffice abre conteudo invalido como texto puro, entao pode converter;
+        # se recusar, o erro precisa ser o de conversao (422), nunca um 500 generico.
+        assert r.status_code in (200, 422)
+        if r.status_code == 422:
+            assert r.json()["error"]
 
 
 def make_docx(text):
