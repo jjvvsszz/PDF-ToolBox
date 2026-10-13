@@ -1,0 +1,168 @@
+name: Painel - Imagem Docker (Pterodactyl)
+
+on:
+  push:
+    branches:
+      - painel
+  pull_request:
+    branches:
+      - painel
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/pdf-toolbox
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare
+        run: echo "PLATFORM_PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+        env:
+          PLATFORM: ${{ matrix.platform }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image for tests
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: pdf-toolbox:test
+          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_PAIR }}
+
+      # Roda a suite dentro da imagem: mesmo SO, mesmas wheels e LibreOffice real
+      - name: Run tests inside image
+        run: |
+          docker run --rm --user root --entrypoint "" \
+            -e UPLOADS_DIR=/src/uploads \
+            -v "$PWD:/src" -w /src \
+            pdf-toolbox:test \
+            sh -c "pip install -q -r requirements-dev.txt && python -m pytest -q test_app.py"
+
+      # Simula o Wings: STARTUP do egg + variaveis de ambiente, volume em /home/container
+      # e processo rodando com o UID do usuario "pterodactyl" do host (988), nao "container".
+      - name: Smoke test (Wings-like startup)
+        run: |
+          mkdir -p server && sudo chown 988:988 server
+          docker run -d --name ptero -p 8080:8080 --user 988:988 \
+            -v "$PWD/server:/home/container" \
+            -e SERVER_PORT=8080 -e WORKERS=2 -e LOG_LEVEL=info \
+            -e STARTUP="$(jq -r .startup pterodactyl/egg-pdf-toolbox.json)" \
+            pdf-toolbox:test
+          for i in $(seq 1 60); do
+            if docker logs ptero 2>&1 | grep -q "Application startup complete"; then break; fi
+            sleep 1
+          done
+          docker logs ptero
+          curl -fsS http://127.0.0.1:8080/health
+          python3 - <<'PY'
+          import zipfile
+          # DOCX minimo valido gerado sem dependencias externas
+          parts = {
+              "[Content_Types].xml": '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+              "_rels/.rels": '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+              "word/document.xml": '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Teste de conversao</w:t></w:r></w:p></w:body></w:document>',
+          }
+          with zipfile.ZipFile("teste.docx", "w") as z:
+              for name, data in parts.items():
+                  z.writestr(name, data)
+          PY
+          curl -fsS -o out.pdf -F "file=@teste.docx" http://127.0.0.1:8080/api/office-to-pdf
+          head -c 5 out.pdf | grep -q "%PDF-"
+          echo "Office -> PDF OK"
+          docker kill --signal=SIGINT ptero
+          docker wait ptero
+          docker logs ptero 2>&1 | tail -n 5
+          docker rm ptero
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push by digest
+        if: github.event_name != 'pull_request'
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.push.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: publicar manifest multi-arch
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            -t "${IMAGE}:painel" \
+            -t "${IMAGE}:painel-${GITHUB_SHA::7}" \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect image
+        run: docker buildx imagetools inspect "${IMAGE}:painel"

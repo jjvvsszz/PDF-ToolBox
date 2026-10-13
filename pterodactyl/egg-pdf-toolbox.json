@@ -1,0 +1,122 @@
+{
+    "_comment": "DO NOT EDIT: FILE GENERATED AUTOMATICALLY BY PTERODACTYL PANEL - PTERODACTYL.IO",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2026-10-13T00:00:00+00:00",
+    "name": "PDF Toolbox",
+    "author": "jjvvsszz.gamer@gmail.com",
+    "description": "Ferramentas web para PDF: mesclar, dividir, comprimir, extrair paginas, remover paginas em branco, PDF <-> imagens, PDF -> Word e Office -> PDF (LibreOffice incluso). A aplicacao vem pronta na imagem Docker (arm64 e amd64); reinicie o servidor para baixar a versao mais recente.",
+    "features": null,
+    "docker_images": {
+        "PDF Toolbox (arm64/amd64)": "ghcr.io/jjvvsszz/pdf-toolbox:painel"
+    },
+    "file_denylist": [],
+    "startup": "python -m uvicorn app.main:app --app-dir /app --host 0.0.0.0 --port {{SERVER_PORT}} --workers {{WORKERS}} --log-level {{LOG_LEVEL}}",
+    "config": {
+        "files": "{}",
+        "startup": "{\n    \"done\": \"Application startup complete\"\n}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\n# A aplicacao e suas dependencias (Python, LibreOffice) ja vem na imagem Docker.\n# Aqui so preparamos as pastas de dados no volume do servidor.\nset -e\nmkdir -p /mnt/server/uploads /mnt/server/tmp\necho \"PDF Toolbox: instalacao concluida.\"",
+            "container": "debian:bookworm-slim",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Workers",
+            "description": "Quantidade de processos do servidor web. Cada worker carrega a aplicacao inteira na memoria; conversoes grandes e o LibreOffice usam memoria extra. Recomendado: 1 por vCPU alocada.",
+            "env_variable": "WORKERS",
+            "default_value": "2",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1,16",
+            "field_type": "text"
+        },
+        {
+            "name": "Tamanho maximo de upload (MB)",
+            "description": "Limite por requisicao. Os arquivos ficam no disco do servidor durante o processamento, entao o limite de disco do servidor precisa comportar alguns uploads simultaneos.",
+            "env_variable": "MAX_UPLOAD_SIZE_MB",
+            "default_value": "200",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1,2048",
+            "field_type": "text"
+        },
+        {
+            "name": "Maximo de arquivos por envio",
+            "description": "Quantidade maxima de arquivos em uma unica operacao (mesclar, imagens para PDF etc.).",
+            "env_variable": "MAX_FILES",
+            "default_value": "50",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1,500",
+            "field_type": "text"
+        },
+        {
+            "name": "Processos da compressao extrema",
+            "description": "Processos paralelos usados para rasterizar paginas na compressao extrema. Nao passe da quantidade de vCPUs alocadas ao servidor.",
+            "env_variable": "COMPRESS_MAX_WORKERS",
+            "default_value": "2",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1,16",
+            "field_type": "text"
+        },
+        {
+            "name": "Timeout do LibreOffice (segundos)",
+            "description": "Tempo maximo de uma conversao Office -> PDF antes de ser cancelada.",
+            "env_variable": "OFFICE_TIMEOUT_SECONDS",
+            "default_value": "180",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:10,1800",
+            "field_type": "text"
+        },
+        {
+            "name": "Limpeza de arquivos (minutos)",
+            "description": "Arquivos de operacoes simples sao apagados apos o download; sobras (previews, falhas) sao removidas apos este tempo sem atividade.",
+            "env_variable": "CLEANUP_DELAY_MINUTES",
+            "default_value": "3",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1,1440",
+            "field_type": "text"
+        },
+        {
+            "name": "Expiracao da mesclagem visual (minutos)",
+            "description": "Sessoes da mesclagem visual sao removidas apos este tempo sem uso.",
+            "env_variable": "SESSION_IDLE_MINUTES",
+            "default_value": "30",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|integer|between:1,1440",
+            "field_type": "text"
+        },
+        {
+            "name": "Origens CORS",
+            "description": "Dominios extras (separados por virgula, ex.: https://meusite.com) autorizados a chamar a API a partir de outro site. Deixe vazio para permitir apenas o proprio endereco da ferramenta.",
+            "env_variable": "CORS_ORIGINS",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:1024",
+            "field_type": "text"
+        },
+        {
+            "name": "Nivel de log",
+            "description": "Detalhamento dos logs exibidos no console.",
+            "env_variable": "LOG_LEVEL",
+            "default_value": "info",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:critical,error,warning,info,debug",
+            "field_type": "text"
+        }
+    ]
+}

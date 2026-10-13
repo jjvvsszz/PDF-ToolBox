@@ -1,0 +1,16 @@
+.git
+.github
+.idea
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+uploads
+logs
+.env
+test_app.py
+requirements-dev.txt
+requirements.lock
+pterodactyl/*.json
+pterodactyl/*.md

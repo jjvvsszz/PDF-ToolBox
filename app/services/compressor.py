@@ -2,7 +2,7 @@ import io
 import os
 import shutil
 from concurrent.futures import ProcessPoolExecutor
-from multiprocessing import cpu_count
+from multiprocessing import cpu_count, get_context
 from pathlib import Path
 
 import fitz
@@ -11,6 +11,7 @@ import numpy as np
 import pikepdf
 from PIL import Image
 
+from app.config import COMPRESS_MAX_WORKERS
 from app.services.pdf_utils import open_pdf, pixmap_to_image
 
 
@@ -36,9 +37,8 @@ COMPRESSION_PROFILES = {
     },
 }
 
-# Abaixo disso o custo de subir processos (spawn no Windows) supera o ganho
+# Abaixo disso o custo de subir processos (spawn) supera o ganho
 PARALLEL_MIN_PAGES = 8
-MAX_PARALLEL_WORKERS = 4
 
 
 def _is_page_color_or_photo(pil_image: Image.Image) -> bool:
@@ -183,7 +183,7 @@ class CompressorService:
         doc.close()
 
         indices = list(range(total))
-        num_workers = min(MAX_PARALLEL_WORKERS, max(1, cpu_count() - 1))
+        num_workers = min(COMPRESS_MAX_WORKERS, max(1, cpu_count() - 1))
         results: list[tuple[int, bytes, tuple[float, float]]] = []
 
         if total < PARALLEL_MIN_PAGES or num_workers == 1:
@@ -194,7 +194,9 @@ class CompressorService:
                 (str(file_path), indices[i:i + chunk_size], profile)
                 for i in range(0, total, chunk_size)
             ]
-            with ProcessPoolExecutor(max_workers=len(chunks)) as executor:
+            # spawn em vez de fork: o worker do uvicorn tem varias threads, e fork de
+            # processo com threads pode herdar locks travados.
+            with ProcessPoolExecutor(max_workers=len(chunks), mp_context=get_context("spawn")) as executor:
                 for chunk_result in executor.map(_process_pages, chunks):
                     results.extend(chunk_result)
 

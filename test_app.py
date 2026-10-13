@@ -6,6 +6,8 @@ import time
 import zipfile
 
 import fitz
+import pytest
+from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 from PIL import Image
 from starlette.applications import Starlette
@@ -16,6 +18,7 @@ from app.config import BASE_DIR, UPLOADS_DIR
 from app.main import app
 from app.middleware import BodySizeLimitMiddleware
 from app.services.cleanup import cleanup_expired
+from app.services.converter import ConverterService
 from app.services.storage import BUSY_MARKER, file_lock, safe_filename
 
 client = TestClient(app)
@@ -212,6 +215,52 @@ def test_office_to_pdf_route():
     # 503 sem LibreOffice instalado; 422 com LibreOffice (arquivo invalido)
     assert r.status_code in (503, 422)
     assert r.json()["error"]
+
+
+def make_docx(text):
+    """DOCX minimo valido, sem depender de python-docx."""
+    parts = {
+        "[Content_Types].xml": (
+            '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-'
+            'officedocument.wordprocessingml.document.main+xml"/></Types>'
+        ),
+        "_rels/.rels": (
+            '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/'
+            'officeDocument" Target="word/document.xml"/></Relationships>'
+        ),
+        "word/document.xml": (
+            '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            f'<w:body><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:body></w:document>'
+        ),
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in parts.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+def test_office_to_pdf_real_conversion():
+    if ConverterService._find_soffice() is None:
+        pytest.skip("LibreOffice nao instalado")
+    docx_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+    def convert(i):
+        return client.post("/api/office-to-pdf", files=[
+            ("file", (f"doc{i}.docx", make_docx(f"Documento {i}"), docx_type))
+        ])
+
+    # Conversoes simultaneas: cada uma usa um perfil proprio do LibreOffice
+    with ThreadPoolExecutor(3) as ex:
+        responses = list(ex.map(convert, range(3)))
+    for i, r in enumerate(responses):
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"] == "application/pdf"
+        assert f"Documento {i}" in page_texts(r.content)[0]
 
 
 def test_remove_blanks():
@@ -521,6 +570,8 @@ if __name__ == "__main__":
         try:
             test()
             print(f"[OK] {test.__name__}")
+        except pytest.skip.Exception as e:
+            print(f"[SKIP] {test.__name__}: {e}")
         except Exception as e:
             failed += 1
             print(f"[FAIL] {test.__name__}: {e!r}")
