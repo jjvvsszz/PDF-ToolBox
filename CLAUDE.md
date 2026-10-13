@@ -1,74 +1,112 @@
-# PDF Toolbox — instruções para o Claude
+# PDF Toolbox (branch `painel`) — instruções para o Claude
 
-Ferramentas web para PDF (FastAPI + PyMuPDF). Visão geral, API e configuração:
-[README.md](README.md). Responder e escrever em **português**.
+Ferramentas web para PDF (FastAPI + PyMuPDF), empacotadas para o **Pterodactyl**: imagem
+Docker multi-arch com o app e o LibreOffice + egg. Visão geral, API e configuração:
+[README.md](README.md); guia do painel: [pterodactyl/README.md](pterodactyl/README.md).
+Responder e escrever em **português**.
 
 ## Branches
 
-- **`master`**: versão para **Windows Server** (serviço NSSM, [deploy.ps1](deploy.ps1)).
-- **`painel`**: mesma aplicação empacotada para **Pterodactyl** (imagem Docker + egg).
-  Tem o próprio `CLAUDE.md` com o prompt de deploy no painel.
-- Correções da aplicação entram primeiro no `master` e depois são mescladas na `painel`
-  (`git switch painel && git merge master`). Nunca mesclar `painel` no `master`: ela remove
-  os arquivos de deploy do Windows.
+- **`master`**: versão para Windows Server (NSSM). Correções da aplicação entram **lá
+  primeiro** e chegam aqui com `git merge master` (o `deploy.ps1`/`deploy.yml` foram removidos
+  nesta branch: em conflito modify/delete, mantenha removidos).
+- **`painel`** (esta): só o que é específico do container (`Dockerfile`, `pterodactyl/`,
+  workflow da imagem, `UPLOADS_DIR`/`LOG_FILE`/`COMPRESS_MAX_WORKERS`/HTTPS). Nunca mesclar
+  esta branch no `master`.
 
 ## Comandos
 
 ```bash
-.venv\Scripts\python -m pip install -r requirements-dev.txt   # dependências + pytest/httpx
-.venv\Scripts\python -m pytest -q test_app.py                  # suíte completa (~5 s)
-.venv\Scripts\python main.py                                   # servidor em :8000
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+.venv\Scripts\python -m pytest -q test_app.py      # o teste Office real é pulado sem LibreOffice
 ```
 
-## Convenções do código
+Não há Docker na máquina de desenvolvimento: a imagem só é construída e testada no CI
+([painel-image.yml](.github/workflows/painel-image.yml)). Mudanças no `Dockerfile` ou no
+`entrypoint.sh` devem ser validadas pelo resultado do workflow antes de qualquer deploy.
 
-- **Uploads**: sempre `storage.save_upload()`; nunca usar `UploadFile.filename` em caminho.
-  IDs de sessão e nomes de miniatura vindos do cliente passam por
-  `is_valid_session_id` / `is_valid_thumb_name`.
-- **Rotas** são `def` (síncronas) e usam `routes/_common.py`: `run_job()` cria a pasta da
-  sessão, marca `.busy` e converte erros; `download()` apaga a pasta após o envio.
-- **Erros para o usuário**: levantar `UserError(mensagem, status)` nos serviços. Mensagens
-  do backend em português **sem acentos** (padrão atual); o frontend tem acentos.
-- **PDFs**: abrir com `pdf_utils.open_pdf()` (valida formato, senha e páginas). Não
-  reintroduzir PyPDF2/pdf2image (dependiam de Poppler, ausente no servidor).
-- Toda correção de bug ganha um teste de regressão em `test_app.py`.
-- Commits em [Conventional Commits](https://www.conventionalcommits.org), em português:
-  o semantic-release gera a versão a partir deles (`fix:` patch, `feat:` minor).
+## Convenções
 
-## Deploy no Windows
+As mesmas do `master` (ver o `CLAUDE.md` de lá): `storage.save_upload()` para uploads,
+rotas `def` com `run_job()`/`download()`, `UserError` para erros do usuário (mensagens do
+backend sem acentos), `open_pdf()` para abrir PDFs, teste de regressão para cada bug,
+Conventional Commits em português. Específico daqui:
 
-Executar o roteiro abaixo quando o usuário pedir "faça o deploy" nesta branch.
+- O egg ([pterodactyl/egg-pdf-toolbox.json](pterodactyl/egg-pdf-toolbox.json)) e o app precisam
+  andar juntos: toda variável nova do egg tem que ser lida em `app/config.py` ou no
+  `entrypoint.sh`, e o smoke test do workflow usa o `startup` do egg.
+- `entrypoint.sh` e `Dockerfile` têm fim de linha LF (forçado no `.gitattributes`).
+- O Wings roda o container com o UID do usuário `pterodactyl` do host, não como `container`:
+  nada na imagem pode depender de escrever fora de `/home/container`.
 
-> **Prompt de deploy (Windows):**
+## Deploy no painel (via pterodactyl-ops)
+
+O painel (`painel.jaoz.men`, Pterodactyl 2.0) é operado pelo repositório
+[jjvvsszz/pterodactyl-ops](https://github.com/jjvvsszz/pterodactyl-ops), que tem o MCP
+`pterodactyl` e as regras de operação. **O deploy é feito a partir de uma sessão do Claude
+Code aberta no pterodactyl-ops**, não neste repositório. Cole lá o prompt abaixo.
+
+> **Prompt de deploy (Pterodactyl):**
 >
-> Faça o deploy do PDF Toolbox (branch `master`) no Windows Server seguindo o CLAUDE.md:
+> Faça o deploy do PDF Toolbox (repositório `jjvvsszz/PDF-ToolBox`, branch `painel`) no
+> painel, seguindo as regras do `CLAUDE.md` deste repositório (pterodactyl-ops):
 >
-> 1. **Pré-checagem local**: `git status` limpo e branch `master` igual a `origin/master`
->    (se houver commits locais, perguntar se devem ir junto). Rodar
->    `python -m pytest -q test_app.py`; se falhar, parar e relatar.
-> 2. **CI**: conferir com `gh run list --branch master --workflow release.yml --limit 1` que
->    o último *Test, Build and Release* do commit atual passou. Se não passou, parar e relatar.
-> 3. **Destino**: perguntar (ou confirmar) host, usuário SSH, pasta do app no servidor
->    (padrão `C:\app\pdf-toolbox`), porta e workers, e se é a **primeira instalação**
->    (precisa de `-InstallDeps`, executado como Administrador).
-> 4. **Escolher o método**:
->    - **GitHub Actions** (preferido): exige o secret `WINDOWS_SSH_KEY` no repositório
->      (`gh secret list`). Se não existir, explicar como criar (chave privada do usuário de
->      deploy, com a pública em `authorized_keys` do Windows) e não prosseguir por esse
->      método. Disparar só **depois de confirmar com o usuário**:
->      `gh workflow run deploy.yml -f windows_host=<host> -f windows_user=<usuario>
->      -f app_dir=<pasta> -f port=<porta> -f workers=<n> -f install_deps=<true|false>`
->      e acompanhar com `gh run watch`.
->    - **Manual** (sem SSH configurado): orientar o usuário a copiar o código para a pasta do
->      servidor e rodar, em PowerShell como Administrador, `.\deploy.ps1 -InstallService`
->      (primeira vez: `.\deploy.ps1 -InstallDeps -InstallService`).
-> 5. **Verificar**: o `deploy.ps1` só termina com sucesso se `/health` responder. Conferir
->    também `http://<host>:<porta>/health` a partir daqui, se a rede permitir. Em caso de
->    falha, pedir/ler `logs\service.log` no servidor e relatar o trecho relevante.
-> 6. **Relatar**: commit implantado, versão do `/health`, método usado e qualquer aviso.
+> 1. **Imagem**: com `gh run list -R jjvvsszz/PDF-ToolBox --branch painel --workflow
+>    painel-image.yml --limit 1`, confirme que o último run passou e anote o commit
+>    (a imagem é `ghcr.io/jjvvsszz/pdf-toolbox:painel`, com a tag fixa `painel-<7 primeiros
+>    caracteres do commit>`). Se falhou ou está rodando, pare e relate.
+> 2. **Egg**: baixe `pterodactyl/egg-pdf-toolbox.json` da branch `painel` e compare com
+>    `eggs/pdf-toolbox.json` deste repositório.
+>    - Se for novo ou diferente: grave em `eggs/pdf-toolbox.json` e faça commit aqui. A API não
+>      importa eggs: peça para eu importar/atualizar em **Admin → Eggs** e espere a confirmação.
+>    - Depois, localize o egg pelo MCP (eggs são só leitura) e anote o id.
+> 3. **Servidor**: procure pelo MCP um servidor chamado "PDF Toolbox".
+>    - **Já existe (atualização)**: confirme comigo e faça **restart** (o Wings baixa a imagem
+>      nova ao iniciar). Se o egg mudou variáveis, confira se o servidor tem as novas com
+>      valores sensatos.
+>    - **Não existe (primeira instalação)**: proponha e só crie após minha confirmação:
+>      node (a imagem é multi-arch; prefira o node ARM), uma **alocação já existente e livre**
+>      (o firewall da OCI não libera toda porta), memória ≥ 2048 MB, disco ≥ 3× o
+>      `MAX_UPLOAD_SIZE_MB`, CPU conforme o node; variáveis: `HTTPS=1`, `WORKERS` e
+>      `COMPRESS_MAX_WORKERS` ≤ vCPUs, demais no padrão do egg. Espere a instalação terminar e
+>      inicie.
+> 4. **Verificar** (uma chamada por vez, nada em paralelo):
+>    - estado `running` e recursos pelo MCP;
+>    - fim de `logs/app.log` (`get_recent_logs`, ~100 linhas): deve ter
+>      `Application startup complete` e nenhum `[ERROR]`/`Traceback` do boot;
+>    - `curl -k https://<ip-do-node>:<porta>/health` → `{"status":"ok"}`; se a porta não
+>      responder, relate que provavelmente falta liberar no firewall da OCI.
+> 5. **Domínio** (primeira instalação ou se ainda não houver): pergunte o hostname
+>    (sugestão: `pdf.jaoz.men`) e me passe a configuração do Cloudflare para eu aplicar:
+>    registro **A proxied** → IP do node; **Origin Rule** para o hostname reescrevendo a porta
+>    de destino para a da alocação; SSL **Full** (nunca Flexible). Depois que eu confirmar,
+>    teste `https://<hostname>/health`.
+> 6. **Monitoramento**: adicione/atualize a entrada em `rotinas/servidores.yml` (formato em
+>    `monitoramento.md`) e faça commit:
 >
-> Regras: confirmar antes de qualquer ação no servidor ou no GitHub (disparar workflow,
-> alterar secrets); nunca exibir chaves ou senhas; variáveis extras da aplicação ficam em
-> `app.env` na pasta do servidor (modelo em `.env.example`), não no repositório.
-> **Rollback**: fazer checkout do commit/tag anterior (`git tag --sort=-creatordate`) e
-> repetir o deploy com ele.
+>    ```yaml
+>      - id: <id curto>
+>        nome: PDF Toolbox
+>        node: <node>
+>        deve_estar_online: true
+>        reiniciar_se_cair: true
+>        alertas:
+>          disco: 80                 # uploads grandes enchem o disco rapido
+>          memoria: 90
+>        logs:
+>          - caminho: logs/app.log
+>            linhas: 300
+>            procurar: ["[ERROR]", "[CRITICAL]", "Traceback"]
+>        http: https://<hostname>/health
+>        notas: >
+>          PDF Toolbox (jjvvsszz/PDF-ToolBox, branch painel). App vem pronto na imagem
+>          ghcr.io/jjvvsszz/pdf-toolbox:painel; restart baixa a versao mais recente.
+>          Erros "nao e um PDF valido"/"protegido por senha" sao do usuario (400), nao
+>          problema. uploads/ e tmp/ sao limpos automaticamente; disco alto e persistente
+>          indica limpeza travada: relatar. Nunca apagar ssl/ (certificado da origem).
+>    ```
+> 7. **Relatório**: commit/tag da imagem implantada, id do servidor, node e porta, resultado
+>    das verificações e o que ficou pendente comigo (egg, Cloudflare, firewall).
+>
+> **Rollback**: troque a imagem do servidor (*Startup → Docker Image*) para a tag
+> `painel-<commit anterior>` (confirmar comigo) e reinicie.

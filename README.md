@@ -16,21 +16,23 @@ são processados localmente e apagados logo após o download.
 | PDF → Word | `/pdf-to-office` | DOCX via `pdf2docx` |
 | Office → PDF | `/office-to-pdf` | Word/Excel/PowerPoint/OpenDocument via LibreOffice |
 
-> **Branches**: `master` é a versão para **Windows Server** (serviço via NSSM).
-> A branch [`painel`](https://github.com/jjvvsszz/PDF-ToolBox/tree/painel) empacota a mesma
-> aplicação em uma imagem Docker multi-arch para **Pterodactyl** (Wings em ARM64).
+> **Esta é a branch `painel`**: a aplicação empacotada em uma imagem Docker multi-arch
+> (`linux/arm64` + `linux/amd64`) para rodar como servidor no **Pterodactyl**, com o Wings em
+> ARM64 (OCI Ampere). A versão para Windows Server fica na branch
+> [`master`](https://github.com/jjvvsszz/PDF-ToolBox/tree/master).
 
 ## Stack
 
 - **Python 3.11+**, FastAPI + Uvicorn, Jinja2 (páginas) e JavaScript puro (sem build).
 - **PyMuPDF** para ler, renderizar, mesclar e dividir PDFs; **pikepdf** e **img2pdf** na
   compressão; **Pillow** e **NumPy** para imagens; **pdf2docx** para PDF → Word.
-- **LibreOffice** (opcional, externo) para Office → PDF. Sem ele, só essa ferramenta fica
-  indisponível (a API responde 503).
+- **LibreOffice** para Office → PDF: incluso na imagem Docker (pacotes `-nogui` do Debian
+  bookworm, com fontes compatíveis com Calibri/Cambria/Arial/Times). Fora da imagem é
+  opcional; sem ele, só essa ferramenta fica indisponível (a API responde 503).
 
 Não depende de Poppler nem de outros binários além do LibreOffice.
 
-## Rodando localmente
+## Rodando localmente (desenvolvimento)
 
 ```bash
 python -m venv .venv
@@ -55,9 +57,9 @@ instalado. `python test_app.py` também funciona (sai com código 1 se algo falh
 
 ## Configuração
 
-Tudo por variáveis de ambiente (a aplicação não carrega `.env` sozinha). No serviço Windows,
-coloque as variáveis em `app.env` na pasta do app (modelo: [.env.example](.env.example));
-o `deploy.ps1` as aplica a cada deploy.
+Tudo por variáveis de ambiente (a aplicação não carrega `.env` sozinha). No Pterodactyl, as
+variáveis do egg aparecem na aba **Startup** do servidor; as marcadas como *imagem* abaixo já
+vêm definidas na imagem Docker.
 
 | Variável | Padrão | Descrição |
 |---|---|---|
@@ -72,6 +74,11 @@ o `deploy.ps1` as aplica a cada deploy.
 | `SESSION_IDLE_MINUTES` | `30` | Expiração da mesclagem visual sem uso |
 | `BUSY_TIMEOUT_MINUTES` | `60` | Tempo máximo que um processamento protege sua pasta |
 | `CORS_ORIGINS` | vazio | Origens extras (separadas por vírgula) que podem chamar a API |
+| `COMPRESS_MAX_WORKERS` | `4` (egg: `2`) | Processos da compressão extrema (no container o `cpu_count()` vê o host todo) |
+| `HTTPS` | egg: `1` | `1` = HTTPS na porta com `ssl/cert.pem`/`ssl/key.pem` (gera autoassinado se faltar) |
+| `UPLOADS_DIR` | `./uploads` (imagem: `/home/container/uploads`) | Pasta das sessões |
+| `LOG_FILE` | vazio (imagem: `/home/container/logs/app.log`) | Também grava os logs (app + acessos) em arquivo |
+| `TMPDIR` | imagem: `/home/container/tmp` | Temporários fora do `/tmp` (tmpfs pequeno do Wings) |
 
 ## Como funciona
 
@@ -134,40 +141,34 @@ Códigos de erro: `400` entrada inválida (PDF corrompido/protegido, intervalo, 
 miniatura inexistente, `413` arquivo grande demais, `422` LibreOffice não conseguiu converter,
 `503` LibreOffice não instalado, `504` conversão excedeu o tempo, `500` erro interno.
 
-## Deploy no Windows Server
+## Deploy no Pterodactyl
 
-O [`deploy.ps1`](deploy.ps1) prepara tudo e registra o serviço `PDFToolbox` com o
-[NSSM](https://nssm.cc). Feito para Windows Server 2012 R2 em diante (PowerShell 5.1).
+Resumo (passo a passo completo em [pterodactyl/README.md](pterodactyl/README.md); roteiro
+para o Claude Code no [CLAUDE.md](CLAUDE.md)):
 
-```powershell
-# Primeira instalação (PowerShell como Administrador): Python 3.11, LibreOffice, NSSM + serviço
-.\deploy.ps1 -InstallDeps -InstallService
+1. Push na branch `painel` → o workflow
+   [`painel-image.yml`](.github/workflows/painel-image.yml) constrói a imagem em runners
+   arm64 e amd64 nativos, roda a suíte **dentro da imagem** (com conversão Office real),
+   sobe o container como o Wings faria (UID 988, `STARTUP` do egg, HTTPS) e publica
+   `ghcr.io/jjvvsszz/pdf-toolbox:painel` (e `:painel-<commit>`). O pacote é público.
+2. Importar/atualizar o egg [`pterodactyl/egg-pdf-toolbox.json`](pterodactyl/egg-pdf-toolbox.json)
+   pela interface de admin do painel.
+3. Criar o servidor com o egg e uma alocação de porta; para atualizar, basta reiniciar o
+   servidor (o Wings baixa a imagem de novo ao iniciar).
 
-# Atualizações: depois de copiar o código novo para a pasta
-.\deploy.ps1 -InstallService
+Arquivos da imagem:
 
-# Parâmetros opcionais (padrões: 0.0.0.0, 8000, 4)
-.\deploy.ps1 -InstallService -BindHost 0.0.0.0 -Port 8000 -Workers 4
-```
+| Arquivo | Papel |
+|---|---|
+| [`Dockerfile`](Dockerfile) | Python 3.11 + LibreOffice + app em `/app`; usuário `container`, `tini` |
+| [`pterodactyl/entrypoint.sh`](pterodactyl/entrypoint.sh) | Prepara pastas, rotaciona o log, gera o certificado, avalia o `STARTUP` do egg |
+| [`pterodactyl/egg-pdf-toolbox.json`](pterodactyl/egg-pdf-toolbox.json) | Egg (PTDL_v2) com as variáveis |
 
-O script para o serviço antes de atualizar as dependências (DLLs carregadas travam o `pip`
-no Windows), cria/atualiza o `venv`, reaplica a configuração do serviço (incluindo `app.env`),
-grava logs com rotação em `logs\service.log` e termina com um health check em `/health`
-(falha com código 1 se o serviço não responder).
+No volume do servidor (`/home/container`) ficam só dados: `uploads/`, `tmp/`, `logs/app.log`
+(+ `app.log.1`, rotacionado no boot acima de 10 MB) e `ssl/`.
 
-### Deploy pelo GitHub Actions
+## CI
 
-O workflow [`deploy.yml`](.github/workflows/deploy.yml) (manual, *Run workflow*) copia o
-repositório por SSH para o servidor e executa o `deploy.ps1 -InstallService`. Requer:
-
-- OpenSSH Server ativo no Windows e o usuário com permissão de administrador;
-- secret `WINDOWS_SSH_KEY` (chave privada) e, recomendado, a variável `WINDOWS_KNOWN_HOSTS`.
-
-O prompt de deploy para o Claude Code está no [CLAUDE.md](CLAUDE.md).
-
-## CI e releases
-
-[`release.yml`](.github/workflows/release.yml): a cada push no `master` roda os testes e,
-se passarem, o [semantic-release](https://semantic-release.gitbook.io) cria a release a
-partir das mensagens de commit ([Conventional Commits](https://www.conventionalcommits.org):
-`fix:` → patch, `feat:` → minor).
+- [`painel-image.yml`](.github/workflows/painel-image.yml): testes + imagem (push na `painel`;
+  em pull requests só testa).
+- O `release.yml` (semantic-release) roda apenas no `master`.
