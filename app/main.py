@@ -1,7 +1,6 @@
 import logging
 import asyncio
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,14 +11,18 @@ from app.config import (
     UPLOADS_DIR,
     STATIC_DIR,
     MAX_UPLOAD_SIZE_MB,
-    MAX_FILES,
     CLEANUP_DELAY_MINUTES,
     CLEANUP_INTERVAL_SECONDS,
+    SESSION_IDLE_MINUTES,
+    BUSY_TIMEOUT_MINUTES,
     CORS_ORIGINS,
     LOG_LEVEL,
 )
-from app.services.cleanup import cleanup_loop, cleanup_orphans
+from app.middleware import BodySizeLimitMiddleware, CSRFMiddleware
+from app.services.cleanup import cleanup_loop, cleanup_expired
 from app.routes import pages, merge, split, compress, extract, convert, detailed_merge, blank_remover
+
+VERSION = "2.0.0"
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
@@ -31,14 +34,19 @@ logger = logging.getLogger("pdf_toolbox")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    cleanup_orphans(UPLOADS_DIR)
-    logger.info("Cleaned up orphan session directories on startup")
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    # Com varios workers, cada um executa isto: so remove o que ja expirou,
+    # para nao apagar sessoes ativas de outro worker.
+    removed = cleanup_expired(UPLOADS_DIR, CLEANUP_DELAY_MINUTES, SESSION_IDLE_MINUTES, BUSY_TIMEOUT_MINUTES)
+    logger.info("Startup cleanup removed %d expired session dir(s)", removed)
     task = asyncio.create_task(
-        cleanup_loop(UPLOADS_DIR, CLEANUP_DELAY_MINUTES, CLEANUP_INTERVAL_SECONDS)
+        cleanup_loop(UPLOADS_DIR, CLEANUP_DELAY_MINUTES, CLEANUP_INTERVAL_SECONDS,
+                     SESSION_IDLE_MINUTES, BUSY_TIMEOUT_MINUTES)
     )
     logger.info(
-        "Cleanup loop started (delay=%dmin, interval=%ds)",
+        "Cleanup loop started (delay=%dmin, idle=%dmin, interval=%ds)",
         CLEANUP_DELAY_MINUTES,
+        SESSION_IDLE_MINUTES,
         CLEANUP_INTERVAL_SECONDS,
     )
     yield
@@ -50,54 +58,28 @@ async def lifespan(app: FastAPI):
     logger.info("Cleanup loop stopped")
 
 
-app = FastAPI(title="PDF Toolbox", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="PDF Toolbox", version=VERSION, lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-_cors_origins = [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()] if CORS_ORIGINS else []
+_cors_origins = [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()]
+
+# A ordem importa: o ultimo adicionado roda primeiro.
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+        expose_headers=["Content-Disposition"],
+    )
+app.add_middleware(CSRFMiddleware, trusted_origins=_cors_origins)
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins or ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    BodySizeLimitMiddleware,
+    max_bytes=MAX_UPLOAD_SIZE_MB * 1024 * 1024,
+    max_mb=MAX_UPLOAD_SIZE_MB,
 )
-
-
-@app.middleware("http")
-async def upload_size_limit_middleware(request: Request, call_next):
-    content_length = request.headers.get("content-length")
-    if content_length:
-        try:
-            cl = int(content_length)
-            max_bytes = MAX_UPLOAD_SIZE_MB * 1024 * 1024
-            if cl > max_bytes:
-                return JSONResponse(
-                    {"error": f"Arquivo excede o limite de {MAX_UPLOAD_SIZE_MB} MB"},
-                    status_code=413,
-                )
-        except ValueError:
-            pass
-    return await call_next(request)
-
-
-@app.middleware("http")
-async def csrf_middleware(request: Request, call_next):
-    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
-        origin = request.headers.get("origin", "")
-        referer = request.headers.get("referer", "")
-        if origin:
-            request_host = request.headers.get("host", "")
-            if origin not in (f"http://{request_host}", f"https://{request_host}"):
-                origin_domain = origin.split("://")[-1] if "://" in origin else origin
-                host_domain = request_host.split(":")[0]
-                if origin_domain != host_domain:
-                    return JSONResponse({"error": "Origem da requisicao invalida"}, status_code=403)
-        elif referer:
-            request_host = request.headers.get("host", "")
-            if request_host not in referer:
-                return JSONResponse({"error": "Origem da requisicao invalida"}, status_code=403)
-    return await call_next(request)
 
 
 @app.exception_handler(Exception)
@@ -108,7 +90,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": VERSION}
 
 
 app.include_router(pages.router)

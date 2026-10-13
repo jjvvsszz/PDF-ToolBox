@@ -3,11 +3,9 @@ uvicorn==0.46.0
 jinja2==3.1.6
 python-multipart==0.0.27
 PyMuPDF==1.27.2.3
-PyPDF2==3.0.1
 pikepdf==10.5.1
 Pillow==12.0.0
 img2pdf==0.6.3
-pdf2image==1.17.0
 pdf2docx==0.5.13
 numpy==2.4.1
 # transitive dependencies (for reproducibility)

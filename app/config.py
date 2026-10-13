@@ -12,7 +12,14 @@ MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "500"))
 MAX_FILES = int(os.getenv("MAX_FILES", "50"))
 CLEANUP_DELAY_MINUTES = int(os.getenv("CLEANUP_DELAY_MINUTES", "3"))
 CLEANUP_INTERVAL_SECONDS = int(os.getenv("CLEANUP_INTERVAL_SECONDS", "60"))
+# Sessoes interativas (mesclagem detalhada) ficam vivas por mais tempo sem atividade
+SESSION_IDLE_MINUTES = int(os.getenv("SESSION_IDLE_MINUTES", "30"))
+# Tempo maximo que um processamento pode manter a pasta protegida da limpeza
+BUSY_TIMEOUT_MINUTES = int(os.getenv("BUSY_TIMEOUT_MINUTES", "60"))
+OFFICE_TIMEOUT_SECONDS = int(os.getenv("OFFICE_TIMEOUT_SECONDS", "180"))
 
+# Origens extras (separadas por virgula) autorizadas a chamar a API de outro dominio.
+# Vazio = somente a mesma origem.
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
 
 UPLOADS_DIR = BASE_DIR / "uploads"

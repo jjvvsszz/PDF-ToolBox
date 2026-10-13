@@ -98,8 +98,7 @@ async function previewBlanks() {
     try {
         const resp = await fetch("/api/remove-blanks/preview", { method: "POST", body: fd });
         if (!resp.ok) {
-            const err = await resp.json();
-            throw new Error(err.error || "Erro");
+            throw new Error(await readError(resp));
         }
         const data = await resp.json();
 

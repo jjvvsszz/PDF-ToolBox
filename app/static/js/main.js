@@ -81,12 +81,27 @@ function renderFileList(listElement) {
         item.className = "file-item";
         item.innerHTML = `
             <span>📄</span>
-            <span class="name">${f.name}</span>
+            <span class="name">${escapeHtml(f.name)}</span>
             <span class="size">${formatSize(f.size)}</span>
             <button class="remove-btn" onclick="removeFile(${i}, document.getElementById('${listElement.id}'))">✕</button>
         `;
         listElement.appendChild(item);
     }
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    })[c]);
+}
+
+async function readError(resp) {
+    try {
+        const data = await resp.json();
+        if (data && data.error) return data.error;
+    } catch (_) { /* resposta nao-JSON (ex.: proxy) */ }
+    if (resp.status === 413) return "Arquivo grande demais";
+    return `Erro no processamento (HTTP ${resp.status})`;
 }
 
 function formatSize(bytes) {
@@ -115,8 +130,7 @@ async function uploadForm(url, formData, buttonId) {
         const resp = await fetch(url, { method: "POST", body: formData });
 
         if (!resp.ok) {
-            const err = await resp.json();
-            throw new Error(err.error || "Erro no processamento");
+            throw new Error(await readError(resp));
         }
 
         const disposition = resp.headers.get("Content-Disposition");

@@ -5,3 +5,6 @@ __pycache__/
 .idea/
 uploads/*
 !uploads/.gitkeep
+venv/
+logs/
+.pytest_cache/

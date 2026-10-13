@@ -241,18 +241,44 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
 
 $venvPath = Join-Path $AppDir "venv"
 $pythonExe = Join-Path $venvPath "Scripts\python.exe"
-$uvicornExe = Join-Path $venvPath "Scripts\uvicorn.exe"
+$serviceName = "PDFToolbox"
+
+Function Invoke-Native {
+    # Executa um comando externo e aborta se o codigo de saida for diferente de zero.
+    param([string]$Description, [scriptblock]$Command)
+    & $Command
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: $Description failed (exit code $LASTEXITCODE)"
+        exit 1
+    }
+}
+
+# Parar o servico antes de atualizar dependencias: no Windows os .pyd/.dll carregados
+# ficam bloqueados e o pip falha ao substitui-los.
+$existing = Get-Service $serviceName -ErrorAction SilentlyContinue
+if ($existing -and $existing.Status -ne "Stopped") {
+    Write-Host "Stopping existing service: $serviceName"
+    Stop-Service $serviceName -Force
+    $existing.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(60))
+}
 
 if (-not (Test-Path $pythonExe)) {
     Write-Host "Creating virtual environment..."
-    python -m venv $venvPath
+    Invoke-Native "venv creation" { python -m venv $venvPath }
 }
 
 Write-Host "Installing pip dependencies..."
 $env:PIP_REQUIRE_VIRTUALENV = "false"
-& $pythonExe -m pip install --upgrade pip
-& $pythonExe -m pip install -r (Join-Path $AppDir "requirements.txt")
+Invoke-Native "pip upgrade" { & $pythonExe -m pip install --upgrade pip --disable-pip-version-check }
+Invoke-Native "pip install" { & $pythonExe -m pip install -r (Join-Path $AppDir "requirements.txt") --disable-pip-version-check }
+Invoke-Native "dependency check" { & $pythonExe -c "import fastapi, uvicorn, fitz, pikepdf, img2pdf, pdf2docx, numpy, PIL" }
 Write-Host "Pip dependencies installed."
+
+$uploadsDir = Join-Path $AppDir "uploads"
+$logsDir = Join-Path $AppDir "logs"
+New-Item -ItemType Directory -Force -Path $uploadsDir, $logsDir | Out-Null
+
+$uvicornArgs = "-m uvicorn app.main:app --host $BindHost --port $Port --workers $Workers --proxy-headers"
 
 if ($InstallService) {
     if (-not (Get-Command nssm -ErrorAction SilentlyContinue)) {
@@ -260,26 +286,49 @@ if ($InstallService) {
         exit 1
     }
 
-    $serviceName = "PDFToolbox"
-    $existing = Get-Service $serviceName -ErrorAction SilentlyContinue
-    if ($existing) {
-        Write-Host "Stopping existing service: $serviceName"
-        nssm stop $serviceName
+    if (-not (Get-Service $serviceName -ErrorAction SilentlyContinue)) {
+        Invoke-Native "nssm install" { nssm install $serviceName "$pythonExe" }
+    }
+    # Sempre reaplica a configuracao, para que um redeploy atualize porta/workers/caminhos
+    Invoke-Native "nssm set Application" { nssm set $serviceName Application "$pythonExe" }
+    Invoke-Native "nssm set AppParameters" { nssm set $serviceName AppParameters $uvicornArgs }
+    Invoke-Native "nssm set AppDirectory" { nssm set $serviceName AppDirectory $AppDir }
+    Invoke-Native "nssm set AppEnvironmentExtra" { nssm set $serviceName AppEnvironmentExtra "HOST=$BindHost" "PORT=$Port" "WORKERS=$Workers" }
+    Invoke-Native "nssm set Start" { nssm set $serviceName Start SERVICE_AUTO_START }
+    Invoke-Native "nssm set AppStdout" { nssm set $serviceName AppStdout (Join-Path $logsDir "service.log") }
+    Invoke-Native "nssm set AppStderr" { nssm set $serviceName AppStderr (Join-Path $logsDir "service.log") }
+    Invoke-Native "nssm set AppRotateFiles" { nssm set $serviceName AppRotateFiles 1 }
+    Invoke-Native "nssm set AppRotateOnline" { nssm set $serviceName AppRotateOnline 1 }
+    Invoke-Native "nssm set AppRotateBytes" { nssm set $serviceName AppRotateBytes 10485760 }
+    Invoke-Native "nssm set AppExit" { nssm set $serviceName AppExit Default Restart }
+
+    Start-Service $serviceName
+
+    # Health check: espera o servidor responder
+    $healthHost = if ($BindHost -eq "0.0.0.0") { "127.0.0.1" } else { $BindHost }
+    $healthUrl = "http://${healthHost}:${Port}/health"
+    $healthy = $false
+    for ($i = 0; $i -lt 30; $i++) {
+        Start-Sleep -Seconds 2
+        try {
+            $resp = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 5
+            if ($resp.StatusCode -eq 200) { $healthy = $true; break }
+        } catch {}
     }
 
-    nssm install $serviceName "$uvicornExe" "app.main:app --host $BindHost --port $Port --workers $Workers" 2>$null
-    nssm set $serviceName AppDirectory $AppDir
-    nssm set $serviceName AppEnvironmentExtra "HOST=$BindHost`nPORT=$Port`nWORKERS=$Workers"
-    nssm set $serviceName Start SERVICE_AUTO_START
-    nssm start $serviceName
-
     Write-Host ""
-    Write-Host "Service '$serviceName' installed and started."
-    Write-Host "http://${BindHost}:${Port}"
+    if ($healthy) {
+        Write-Host "Service '$serviceName' is running and healthy."
+        Write-Host "http://${BindHost}:${Port}"
+    } else {
+        Write-Host "ERROR: Service '$serviceName' did not respond at $healthUrl"
+        Write-Host "  Check logs: $(Join-Path $logsDir 'service.log')"
+        exit 1
+    }
 } else {
     Write-Host ""
     Write-Host "=== To run the app ==="
-    Write-Host "  & `"$uvicornExe`" app.main:app --host $BindHost --port $Port --workers $Workers"
+    Write-Host "  & `"$pythonExe`" $uvicornArgs"
     Write-Host ""
     Write-Host "=== To install as Windows Service ==="
     Write-Host "  .\deploy.ps1 -InstallService"

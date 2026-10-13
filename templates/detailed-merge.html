@@ -25,51 +25,73 @@
 {% block scripts %}
 <script>
 let sessionId = null;
+const statusEl = document.getElementById("status-message");
+
+function showStatus(kind, text) {
+    statusEl.className = "status-message " + kind;
+    statusEl.textContent = text;
+    statusEl.style.display = "block";
+}
 
 async function initSession() {
     const resp = await fetch("/api/detailed-merge/create-session", { method: "POST" });
-    const data = await resp.json();
-    sessionId = data.session_id;
+    if (!resp.ok) throw new Error(await readError(resp));
+    sessionId = (await resp.json()).session_id;
 }
 
-initSession();
+const sessionReady = initSession().catch(e => showStatus("error", "Erro: " + e.message));
+
+// Envia para a API; se a sessao expirou, cria outra e avisa o usuario.
+async function sessionPost(url, buildForm) {
+    await sessionReady;
+    if (!sessionId) await initSession();
+    let resp = await fetch(url, { method: "POST", body: buildForm() });
+    if (resp.status === 404 && resp.headers.get("X-Session-Expired")) {
+        const message = await readError(resp);
+        await initSession();
+        renderThumbnails([]);
+        throw new Error(message);
+    }
+    if (!resp.ok) throw new Error(await readError(resp));
+    return resp;
+}
+
+function formWith(fields) {
+    const fd = new FormData();
+    fd.append("session_id", sessionId);
+    for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+    return fd;
+}
 
 document.getElementById("add-btn").addEventListener("click", () => {
     document.getElementById("file-input").click();
 });
 
 document.getElementById("file-input").addEventListener("change", async () => {
-    const files = document.getElementById("file-input").files;
+    const input = document.getElementById("file-input");
+    const files = Array.from(input.files);
+    input.value = "";
     if (!files.length) return;
-    document.getElementById("file-input").value = "";
 
-    const fd = new FormData();
-    fd.append("session_id", sessionId);
-    for (const f of files) {
-        fd.append("files", f);
-    }
-
-    const status = document.getElementById("status-message");
-    status.className = "status-message info";
-    status.textContent = "Adicionando páginas...";
-    status.style.display = "block";
-
+    showStatus("info", "Adicionando páginas...");
     try {
-        const resp = await fetch("/api/detailed-merge/add-pdf", { method: "POST", body: fd });
+        const resp = await sessionPost("/api/detailed-merge/add-pdf", () => {
+            const fd = formWith({});
+            for (const f of files) fd.append("files", f);
+            return fd;
+        });
         const data = await resp.json();
+        renderThumbnails(data.pages);
+        const problems = (data.errors || []).join(" ");
         if (data.total_added > 0) {
-            status.className = "status-message success";
-            status.textContent = `${data.total_added} páginas adicionadas (total: ${data.total_pages})`;
-            renderThumbnails(data.pages);
+            showStatus(problems ? "info" : "success",
+                `${data.total_added} páginas adicionadas (total: ${data.total_pages}). ${problems}`.trim());
         } else {
-            status.className = "status-message error";
-            status.textContent = "Nenhuma página adicionada";
+            showStatus("error", problems || "Nenhuma página adicionada");
         }
     } catch (e) {
-        status.className = "status-message error";
-        status.textContent = "Erro: " + e.message;
+        showStatus("error", "Erro: " + e.message);
     }
-    status.style.display = "block";
 });
 
 function renderThumbnails(pages) {
@@ -79,8 +101,8 @@ function renderThumbnails(pages) {
         const card = document.createElement("div");
         card.className = "thumb-card";
         card.innerHTML = `
-            <img src="/api/detailed-merge/thumbnail/${sessionId}/${page.thumbnail}" alt="Página ${i + 1}" loading="lazy">
-            <div class="page-label">Pág ${i + 1} · ${page.original_filename}</div>
+            <img src="/api/detailed-merge/thumbnail/${sessionId}/${encodeURIComponent(page.thumbnail)}" alt="Página ${i + 1}" loading="lazy">
+            <div class="page-label">Pág ${i + 1} · ${escapeHtml(page.original_filename)}</div>
             <div class="thumb-actions">
                 <button class="thumb-btn" onclick="movePage(${i}, 'up')" ${i === 0 ? "disabled" : ""}>▲</button>
                 <button class="thumb-btn" onclick="movePage(${i}, 'down')" ${i === pages.length - 1 ? "disabled" : ""}>▼</button>
@@ -95,65 +117,38 @@ function renderThumbnails(pages) {
     }
 }
 
-async function movePage(index, direction) {
-    const fd = new FormData();
-    fd.append("session_id", sessionId);
-    fd.append("index", index);
-    fd.append("direction", direction);
-
-    const resp = await fetch("/api/detailed-merge/reorder", { method: "POST", body: fd });
-    const data = await resp.json();
-    if (data.success) {
-        renderThumbnails(data.pages);
+async function pageAction(url, fields) {
+    try {
+        const resp = await sessionPost(url, () => formWith(fields));
+        const data = await resp.json();
+        if (data.success) renderThumbnails(data.pages);
+    } catch (e) {
+        showStatus("error", "Erro: " + e.message);
     }
 }
 
-async function deletePage(index) {
-    const fd = new FormData();
-    fd.append("session_id", sessionId);
-    fd.append("index", index);
-
-    const resp = await fetch("/api/detailed-merge/delete", { method: "POST", body: fd });
-    const data = await resp.json();
-    if (data.success) {
-        renderThumbnails(data.pages);
-    }
+function movePage(index, direction) {
+    return pageAction("/api/detailed-merge/reorder", { index, direction });
 }
 
-async function clearAll() {
-    const fd = new FormData();
-    fd.append("session_id", sessionId);
-    const resp = await fetch("/api/detailed-merge/clear", { method: "POST", body: fd });
-    const data = await resp.json();
-    if (data.success) {
-        renderThumbnails(data.pages);
-    }
+function deletePage(index) {
+    return pageAction("/api/detailed-merge/delete", { index });
+}
+
+function clearAll() {
+    return pageAction("/api/detailed-merge/clear", {});
 }
 
 async function savePdf() {
-    const status = document.getElementById("status-message");
-    status.className = "status-message info";
-    status.textContent = "Gerando PDF...";
-    status.style.display = "block";
-
-    const fd = new FormData();
-    fd.append("session_id", sessionId);
-
+    showStatus("info", "Gerando PDF...");
     try {
-        const resp = await fetch("/api/detailed-merge/save", { method: "POST", body: fd });
-        if (!resp.ok) {
-            const err = await resp.json();
-            throw new Error(err.error || "Erro");
-        }
+        const resp = await sessionPost("/api/detailed-merge/save", () => formWith({}));
         const blob = await resp.blob();
         downloadBlob(blob, "detailed_merged.pdf");
-        status.className = "status-message success";
-        status.textContent = "PDF salvo com sucesso!";
+        showStatus("success", "PDF salvo com sucesso!");
     } catch (e) {
-        status.className = "status-message error";
-        status.textContent = "Erro: " + e.message;
+        showStatus("error", "Erro: " + e.message);
     }
-    status.style.display = "block";
 }
 </script>
 {% endblock %}

@@ -1,45 +1,23 @@
 import logging
-import uuid
-import shutil
-from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File
-from fastapi.responses import FileResponse, JSONResponse
 
-from app.config import UPLOADS_DIR, MAX_FILES
+from app.routes._common import download, run_job, too_many_files
 from app.services.merger import MergerService
+from app.services.storage import save_upload
 
 logger = logging.getLogger("pdf_toolbox.merge")
 router = APIRouter()
 
 
 @router.post("/merge")
-async def merge_pdfs(files: list[UploadFile] = File(...)):
-    if not files:
-        return JSONResponse({"error": "Nenhum arquivo enviado"}, status_code=400)
-    if len(files) > MAX_FILES:
-        return JSONResponse({"error": f"Maximo de {MAX_FILES} arquivos permitidos"}, status_code=400)
+def merge_pdfs(files: list[UploadFile] = File(...)):
+    if (err := too_many_files(files)) is not None:
+        return err
 
-    session_dir = UPLOADS_DIR / uuid.uuid4().hex
-    session_dir.mkdir(parents=True, exist_ok=True)
-
-    saved_paths = []
-    try:
-        for f in files:
-            fp = session_dir / f.filename
-            with open(fp, "wb") as out:
-                content = await f.read()
-                out.write(content)
-            saved_paths.append(fp)
-
+    def job(session_dir):
+        saved_paths = [save_upload(f, session_dir) for f in files]
         output_path = MergerService.merge_pdfs(saved_paths, session_dir)
+        return download(output_path, session_dir, "application/pdf")
 
-        return FileResponse(
-            output_path,
-            filename=output_path.name,
-            media_type="application/pdf",
-        )
-    except Exception:
-        logger.exception("Erro ao mesclar PDFs")
-        shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)
+    return run_job(logger, "Erro ao mesclar PDFs", job)

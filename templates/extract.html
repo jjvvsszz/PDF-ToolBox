@@ -93,8 +93,7 @@ async function previewExtract() {
     try {
         const resp = await fetch("/api/extract/preview", { method: "POST", body: fd });
         if (!resp.ok) {
-            const err = await resp.json();
-            throw new Error(err.error || "Erro");
+            throw new Error(await readError(resp));
         }
         const data = await resp.json();
 

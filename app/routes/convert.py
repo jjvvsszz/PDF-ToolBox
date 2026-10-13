@@ -1,144 +1,66 @@
 import logging
-import uuid
-import shutil
 import zipfile
-from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, Form
-from fastapi.responses import FileResponse, JSONResponse
 
-from app.config import UPLOADS_DIR, MAX_FILES
+from app.routes._common import download, run_job, too_many_files
 from app.services.converter import ConverterService
+from app.services.storage import save_upload
 
 logger = logging.getLogger("pdf_toolbox.convert")
 router = APIRouter()
 
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
 
 @router.post("/pdf-to-images")
-async def pdf_to_images(file: UploadFile = File(...), format: str = Form("png")):
-    if not file:
-        return JSONResponse({"error": "Nenhum arquivo enviado"}, status_code=400)
-
-    session_dir = UPLOADS_DIR / uuid.uuid4().hex
-    session_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        fp = session_dir / file.filename
-        with open(fp, "wb") as out:
-            content = await file.read()
-            out.write(content)
-
+def pdf_to_images(file: UploadFile = File(...), format: str = Form("png")):
+    def job(session_dir):
+        _, _, media_type = ConverterService.image_format(format)
+        fp = save_upload(file, session_dir)
         output_paths = ConverterService.pdf_to_images(fp, session_dir, format)
 
         if len(output_paths) == 1:
-            return FileResponse(
-                output_paths[0],
-                filename=output_paths[0].name,
-            )
+            return download(output_paths[0], session_dir, media_type)
 
         zip_path = session_dir / "imagens.zip"
-        with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_DEFLATED) as zf:
+        # Imagens ja sao comprimidas; ZIP_STORED evita gastar CPU a toa
+        with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_STORED) as zf:
             for p in output_paths:
                 zf.write(str(p), p.name)
+        return download(zip_path, session_dir, "application/zip", filename="pdf_para_imagens.zip")
 
-        return FileResponse(
-            zip_path,
-            filename="pdf_para_imagens.zip",
-            media_type="application/zip",
-        )
-    except Exception:
-        logger.exception("Erro ao converter PDF para imagens")
-        shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)
+    return run_job(logger, "Erro ao converter PDF para imagens", job)
 
 
 @router.post("/images-to-pdf")
-async def images_to_pdf(files: list[UploadFile] = File(...)):
-    if not files:
-        return JSONResponse({"error": "Nenhum arquivo enviado"}, status_code=400)
-    if len(files) > MAX_FILES:
-        return JSONResponse({"error": f"Maximo de {MAX_FILES} arquivos permitidos"}, status_code=400)
+def images_to_pdf(files: list[UploadFile] = File(...)):
+    if (err := too_many_files(files)) is not None:
+        return err
 
-    session_dir = UPLOADS_DIR / uuid.uuid4().hex
-    session_dir.mkdir(parents=True, exist_ok=True)
-    saved_paths = []
-
-    try:
-        for f in files:
-            fp = session_dir / f.filename
-            with open(fp, "wb") as out:
-                content = await f.read()
-                out.write(content)
-            saved_paths.append(fp)
-
+    def job(session_dir):
+        saved_paths = [save_upload(f, session_dir) for f in files]
         output_path = ConverterService.images_to_pdf(saved_paths, session_dir)
+        return download(output_path, session_dir, "application/pdf")
 
-        return FileResponse(
-            output_path,
-            filename=output_path.name,
-            media_type="application/pdf",
-        )
-    except Exception:
-        logger.exception("Erro ao converter imagens para PDF")
-        shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)
+    return run_job(logger, "Erro ao converter imagens para PDF", job)
 
 
 @router.post("/office-to-pdf")
-async def office_to_pdf(file: UploadFile = File(...)):
-    if not file:
-        return JSONResponse({"error": "Nenhum arquivo enviado"}, status_code=400)
-
-    session_dir = UPLOADS_DIR / uuid.uuid4().hex
-    session_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        fp = session_dir / file.filename
-        with open(fp, "wb") as out:
-            content = await file.read()
-            out.write(content)
-
+def office_to_pdf(file: UploadFile = File(...)):
+    def job(session_dir):
+        fp = save_upload(file, session_dir)
         output_path = ConverterService.office_to_pdf(fp, session_dir)
+        return download(output_path, session_dir, "application/pdf")
 
-        if output_path is None:
-            return JSONResponse(
-                {"error": "LibreOffice nao encontrado. Instale o LibreOffice no servidor."},
-                status_code=500,
-            )
-
-        return FileResponse(
-            output_path,
-            filename=output_path.name,
-            media_type="application/pdf",
-        )
-    except Exception:
-        logger.exception("Erro ao converter Office para PDF")
-        shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)
+    return run_job(logger, "Erro ao converter Office para PDF", job)
 
 
 @router.post("/pdf-to-office")
-async def pdf_to_office(file: UploadFile = File(...)):
-    if not file:
-        return JSONResponse({"error": "Nenhum arquivo enviado"}, status_code=400)
-
-    session_dir = UPLOADS_DIR / uuid.uuid4().hex
-    session_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        fp = session_dir / file.filename
-        with open(fp, "wb") as out:
-            content = await file.read()
-            out.write(content)
-
+def pdf_to_office(file: UploadFile = File(...)):
+    def job(session_dir):
+        fp = save_upload(file, session_dir)
         output_path = ConverterService.pdf_to_docx(fp, session_dir)
+        return download(output_path, session_dir, DOCX_MEDIA_TYPE)
 
-        return FileResponse(
-            output_path,
-            filename=output_path.name,
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        )
-    except Exception:
-        logger.exception("Erro ao converter PDF para DOCX")
-        shutil.rmtree(str(session_dir), ignore_errors=True)
-        return JSONResponse({"error": "Erro ao processar o arquivo"}, status_code=500)
+    return run_job(logger, "Erro ao converter PDF para DOCX", job)

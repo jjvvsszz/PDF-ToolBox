@@ -71,8 +71,8 @@ function renderPreview() {
         const card = document.createElement("div");
         card.className = "thumb-card";
         card.innerHTML = `
-            <img src="${url}" alt="${file.name}" style="width:100%;max-height:180px;object-fit:cover;">
-            <div class="page-label">${i + 1}. ${file.name} (${formatSize(file.size)})</div>
+            <img src="${url}" alt="${escapeHtml(file.name)}" onload="URL.revokeObjectURL(this.src)" style="width:100%;max-height:180px;object-fit:cover;">
+            <div class="page-label">${i + 1}. ${escapeHtml(file.name)} (${formatSize(file.size)})</div>
             <div class="thumb-actions">
                 <button class="thumb-btn" onclick="moveImage(${i}, 'up')" ${i === 0 ? "disabled" : ""}>▲</button>
                 <button class="thumb-btn" onclick="moveImage(${i}, 'down')" ${i === selectedFiles.length - 1 ? "disabled" : ""}>▼</button>
