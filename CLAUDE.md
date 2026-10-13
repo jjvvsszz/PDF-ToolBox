@@ -39,17 +39,20 @@ Conventional Commits em português. Específico daqui:
 - O Wings roda o container com o UID do usuário `pterodactyl` do host, não como `container`:
   nada na imagem pode depender de escrever fora de `/home/container`.
 
-## Deploy no painel (via pterodactyl-ops)
+## Deploy no painel
 
-O painel (`painel.jaoz.men`, Pterodactyl 2.0) é operado pelo repositório
-[jjvvsszz/pterodactyl-ops](https://github.com/jjvvsszz/pterodactyl-ops), que tem o MCP
-`pterodactyl` e as regras de operação. **O deploy é feito a partir de uma sessão do Claude
-Code aberta no pterodactyl-ops**, não neste repositório. Cole lá o prompt abaixo.
+O painel é operado a partir de um repositório de operação **privado**, com o MCP
+`pterodactyl`, as regras de operação, a cópia dos eggs e a lista de monitoramento.
+**O deploy é feito numa sessão do Claude Code aberta nesse repositório**, não neste. Cole lá
+o prompt abaixo.
+
+Este repositório é **público**: endereço do painel, domínios, nomes de nodes, IPs e o nome do
+repositório de operação nunca devem ser registrados aqui (nem em commits, issues ou logs).
 
 > **Prompt de deploy (Pterodactyl):**
 >
 > Faça o deploy do PDF Toolbox (repositório `jjvvsszz/PDF-ToolBox`, branch `painel`) no
-> painel, seguindo as regras do `CLAUDE.md` deste repositório (pterodactyl-ops):
+> painel, seguindo as regras do `CLAUDE.md` deste repositório de operação:
 >
 > 1. **Imagem**: com `gh run list -R jjvvsszz/PDF-ToolBox --branch painel --workflow
 >    painel-image.yml --limit 1`, confirme que o último run passou e anote o commit
@@ -66,7 +69,7 @@ Code aberta no pterodactyl-ops**, não neste repositório. Cole lá o prompt aba
 >      valores sensatos.
 >    - **Não existe (primeira instalação)**: proponha e só crie após minha confirmação:
 >      node (a imagem é multi-arch; prefira o node ARM), uma **alocação já existente e livre**
->      (o firewall da OCI não libera toda porta), memória ≥ 2048 MB, disco ≥ 3× o
+>      (o firewall do node pode não liberar toda porta), memória ≥ 2048 MB, disco ≥ 3× o
 >      `MAX_UPLOAD_SIZE_MB`, CPU conforme o node; variáveis: `HTTPS=1`, `WORKERS` e
 >      `COMPRESS_MAX_WORKERS` ≤ vCPUs, demais no padrão do egg. Espere a instalação terminar e
 >      inicie.
@@ -75,12 +78,12 @@ Code aberta no pterodactyl-ops**, não neste repositório. Cole lá o prompt aba
 >    - fim de `logs/app.log` (`get_recent_logs`, ~100 linhas): deve ter
 >      `Application startup complete` e nenhum `[ERROR]`/`Traceback` do boot;
 >    - `curl -k https://<ip-do-node>:<porta>/health` → `{"status":"ok"}`; se a porta não
->      responder, relate que provavelmente falta liberar no firewall da OCI.
-> 5. **Domínio** (primeira instalação ou se ainda não houver): pergunte o hostname
->    (sugestão: `pdf.jaoz.men`) e me passe a configuração do Cloudflare para eu aplicar:
->    registro **A proxied** → IP do node; **Origin Rule** para o hostname reescrevendo a porta
->    de destino para a da alocação; SSL **Full** (nunca Flexible). Depois que eu confirmar,
->    teste `https://<hostname>/health`.
+>      responder, relate que provavelmente falta liberar a porta no firewall do node.
+> 5. **Domínio** (primeira instalação ou se ainda não houver): pergunte o hostname e siga a
+>    convenção deste repositório de operação para expor serviços web (o app serve HTTPS na
+>    porta com certificado autoassinado, ou com `ssl/cert.pem` e `ssl/key.pem` fornecidos).
+>    Passe-me a configuração de DNS/proxy para eu aplicar e, depois que eu confirmar, teste
+>    `https://<hostname>/health`.
 > 6. **Monitoramento**: adicione/atualize a entrada em `rotinas/servidores.yml` (formato em
 >    `monitoramento.md`) e faça commit:
 >

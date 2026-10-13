@@ -30,8 +30,8 @@ caminho é *Admin → Nests → Import Egg*.
 2. **Egg**: *Admin → Eggs* → importar [`egg-pdf-toolbox.json`](egg-pdf-toolbox.json)
    (para atualizar um egg existente, use a opção de atualizar/importar por cima dele).
 3. **Servidor** com esse egg:
-   - **Allocation**: porta onde a ferramenta vai responder. Na OCI nem toda porta está
-     liberada no firewall; prefira uma alocação já existente e teste depois.
+   - **Allocation**: porta onde a ferramenta vai responder. A porta precisa estar liberada
+     no firewall do node/provedor (na OCI, na Security List da VCN); teste depois.
    - **Memória**: LibreOffice e compressão extrema são os maiores consumidores; comece com
      pelo menos 2 GB e ajuste pelo uso real.
    - **Disco**: alguns uploads simultâneos + arquivos gerados; use no mínimo 3× o

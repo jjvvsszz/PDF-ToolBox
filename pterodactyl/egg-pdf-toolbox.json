@@ -6,7 +6,7 @@
     },
     "exported_at": "2026-10-13T00:00:00+00:00",
     "name": "PDF Toolbox",
-    "author": "jjvvsszz.gamer@gmail.com",
+    "author": "contato@jaooo.tk",
     "description": "Ferramentas web para PDF: mesclar, dividir, comprimir, extrair paginas, remover paginas em branco, PDF <-> imagens, PDF -> Word e Office -> PDF (LibreOffice incluso). Serve HTTPS (certificado autoassinado gerado automaticamente) e grava logs em logs/app.log. A aplicacao vem pronta na imagem Docker (arm64 e amd64); reinicie o servidor para baixar a versao mais recente.",
     "features": null,
     "docker_images": {
