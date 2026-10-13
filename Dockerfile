@@ -28,6 +28,7 @@ RUN apt-get update \
         fonts-crosextra-carlito \
         fonts-crosextra-caladea \
         tini \
+        openssl \
         iproute2 \
         ca-certificates \
         tzdata \
@@ -50,7 +51,8 @@ USER container
 ENV USER=container \
     HOME=/home/container \
     UPLOADS_DIR=/home/container/uploads \
-    TMPDIR=/home/container/tmp
+    TMPDIR=/home/container/tmp \
+    LOG_FILE=/home/container/logs/app.log
 WORKDIR /home/container
 
 STOPSIGNAL SIGINT

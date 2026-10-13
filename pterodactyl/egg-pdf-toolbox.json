@@ -7,7 +7,7 @@
     "exported_at": "2026-10-13T00:00:00+00:00",
     "name": "PDF Toolbox",
     "author": "jjvvsszz.gamer@gmail.com",
-    "description": "Ferramentas web para PDF: mesclar, dividir, comprimir, extrair paginas, remover paginas em branco, PDF <-> imagens, PDF -> Word e Office -> PDF (LibreOffice incluso). A aplicacao vem pronta na imagem Docker (arm64 e amd64); reinicie o servidor para baixar a versao mais recente.",
+    "description": "Ferramentas web para PDF: mesclar, dividir, comprimir, extrair paginas, remover paginas em branco, PDF <-> imagens, PDF -> Word e Office -> PDF (LibreOffice incluso). Serve HTTPS (certificado autoassinado gerado automaticamente) e grava logs em logs/app.log. A aplicacao vem pronta na imagem Docker (arm64 e amd64); reinicie o servidor para baixar a versao mais recente.",
     "features": null,
     "docker_images": {
         "PDF Toolbox (arm64/amd64)": "ghcr.io/jjvvsszz/pdf-toolbox:painel"
@@ -28,6 +28,16 @@
         }
     },
     "variables": [
+        {
+            "name": "HTTPS",
+            "description": "1 = serve HTTPS na porta (certificado de ssl/cert.pem e ssl/key.pem; se nao existirem, gera um autoassinado - suficiente atras do Cloudflare com SSL Full). 0 = HTTP puro.",
+            "env_variable": "HTTPS",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:0,1",
+            "field_type": "text"
+        },
         {
             "name": "Workers",
             "description": "Quantidade de processos do servidor web. Cada worker carrega a aplicacao inteira na memoria; conversoes grandes e o LibreOffice usam memoria extra. Recomendado: 1 por vCPU alocada.",

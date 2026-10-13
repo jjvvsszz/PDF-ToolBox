@@ -1,6 +1,7 @@
 import logging
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,7 @@ from app.config import (
     BUSY_TIMEOUT_MINUTES,
     CORS_ORIGINS,
     LOG_LEVEL,
+    LOG_FILE,
 )
 from app.middleware import BodySizeLimitMiddleware, CSRFMiddleware
 from app.services.cleanup import cleanup_loop, cleanup_expired
@@ -30,6 +32,23 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("pdf_toolbox")
+
+
+def _setup_file_logging(path: str):
+    """Duplica os logs em arquivo. Com varios workers cada processo abre o arquivo em
+    modo append (escritas de linha sao atomicas); a rotacao e feita na inicializacao."""
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+    # Os loggers do uvicorn nao propagam para o root
+    for name in ("", "uvicorn", "uvicorn.access"):
+        logging.getLogger(name).addHandler(handler)
+
+
+if LOG_FILE:
+    _setup_file_logging(LOG_FILE)
 
 
 @asynccontextmanager

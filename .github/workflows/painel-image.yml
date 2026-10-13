@@ -74,7 +74,9 @@ jobs:
             sleep 1
           done
           docker logs ptero
-          curl -fsS http://127.0.0.1:8080/health
+          # HTTPS e o padrao do egg (certificado autoassinado gerado no primeiro boot)
+          curl -fsSk https://127.0.0.1:8080/health
+          test -s server/ssl/cert.pem && test -s server/ssl/key.pem
           python3 - <<'PY'
           import zipfile
           # DOCX minimo valido gerado sem dependencias externas
@@ -87,9 +89,11 @@ jobs:
               for name, data in parts.items():
                   z.writestr(name, data)
           PY
-          curl -fsS -o out.pdf -F "file=@teste.docx" http://127.0.0.1:8080/api/office-to-pdf
+          curl -fsS -o out.pdf -k -F "file=@teste.docx" https://127.0.0.1:8080/api/office-to-pdf
           head -c 5 out.pdf | grep -q "%PDF-"
           echo "Office -> PDF OK"
+          sudo grep -q "POST /api/office-to-pdf" server/logs/app.log
+          echo "logs/app.log OK"
           docker kill --signal=SIGINT ptero
           docker wait ptero
           docker logs ptero 2>&1 | tail -n 5

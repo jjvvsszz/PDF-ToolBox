@@ -7,6 +7,8 @@ HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 WORKERS = int(os.getenv("WORKERS", "4"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
+# Opcional: tambem grava os logs (app + acessos) neste arquivo, para monitoramento
+LOG_FILE = os.getenv("LOG_FILE", "")
 
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "500"))
 MAX_FILES = int(os.getenv("MAX_FILES", "50"))
