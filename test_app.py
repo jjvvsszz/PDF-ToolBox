@@ -298,7 +298,7 @@ def test_upload_path_traversal_is_contained():
                     files=[("file", ("../../PWNED_test.pdf", make_pdf(1), "application/pdf"))])
     assert r.status_code == 200
     assert not escaped.exists()
-    assert "PWNED_test_compressed_light.pdf" in r.headers["content-disposition"]
+    assert "PWNED_test_compressed.pdf" in r.headers["content-disposition"]
 
 
 def test_safe_filename():
@@ -404,6 +404,114 @@ def test_compress_extreme_parallel_mixed_sizes():
     sizes = [A4, (842, 595)] * 5
     assert _extreme_page_sizes(make_pdf(len(sizes), sizes=sizes)) == sizes
 
+
+
+def make_photo_pdf(pages=1, size=(1800, 1350), seed=0):
+    """PDF com uma "foto" grande sem perda (gradiente + ruido), para medir a compressao."""
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    h, w = size[1], size[0]
+    yy, xx = np.mgrid[0:h, 0:w]
+    base = np.stack([xx * 255 / w, yy * 255 / h, (xx + yy) * 127 / (w + h)], axis=-1)
+    pixels = np.clip(base + rng.normal(0, 18, (h, w, 3)), 0, 255).astype("uint8")
+    buf = io.BytesIO()
+    Image.fromarray(pixels).save(buf, format="PNG")
+    doc = fitz.open()
+    for _ in range(pages):
+        page = doc.new_page(width=A4[0], height=A4[1])
+        page.insert_text((72, 60), "Relatorio com foto", fontsize=18)
+        page.insert_image(fitz.Rect(36, 80, A4[0] - 36, 520), stream=buf.getvalue())
+    data = doc.tobytes(deflate=True)
+    doc.close()
+    return data
+
+
+def _compress(pdf_bytes, **fields):
+    data = {k: str(v) for k, v in fields.items()}
+    r = client.post("/api/compress", data=data, files=[("file", ("f.pdf", pdf_bytes, "application/pdf"))])
+    assert r.status_code == 200, r.text
+    return r.content
+
+
+def test_compress_level_zero_is_lossless():
+    original = make_photo_pdf()
+    out = _compress(original, level=0)
+    src, dst = fitz.open("pdf", original), fitz.open("pdf", out)
+    try:
+        src_px = [fitz.Pixmap(src, img[0]).samples for img in src[0].get_images()]
+        dst_px = [fitz.Pixmap(dst, img[0]).samples for img in dst[0].get_images()]
+        assert src_px == dst_px, "nivel 0 nao pode alterar as imagens"
+        assert page_texts(out) == page_texts(original)
+    finally:
+        src.close()
+        dst.close()
+    # Nivel 0 == valor antigo "light"
+    assert len(out) == len(_compress(original, level="light"))
+
+
+def test_compress_slider_is_monotonic_and_beats_old_normal():
+    from app.services.compressor import CompressorService
+    original = make_photo_pdf()
+    sizes = [len(_compress(original, level=lvl)) for lvl in (0, 30, 60, 100)]
+    assert sizes == sorted(sizes, reverse=True), sizes
+    assert sizes[-1] < sizes[0]
+
+    # Antigo "Normal": JPEG qualidade 50, ate 2000 px
+    tmp = UPLOADS_DIR / ("e" * 32)
+    tmp.mkdir(parents=True, exist_ok=True)
+    try:
+        src = tmp / "in.pdf"
+        src.write_bytes(original)
+        old = CompressorService._recompress_images(src, tmp / "old.pdf", {"quality": 50, "max_dim": 2000})
+        old = CompressorService._optimize(old, tmp / "old_opt.pdf")
+        assert sizes[-1] < old.stat().st_size, "nivel maximo deve comprimir mais que o antigo Normal"
+    finally:
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_compress_never_larger_than_light():
+    original = make_pdf(3).getvalue()      # so texto: recomprimir imagens nao ajuda
+    light = len(_compress(original, level=0))
+    for lvl in (10, 50, 100):
+        assert len(_compress(original, level=lvl)) <= light
+    assert len(_compress(original, level=100, extreme="true")) <= light
+
+
+def test_compress_extreme_sliders():
+    photo = make_photo_pdf()
+    best_photo = len(_compress(photo, level=75, extreme="true", image_level=0))
+    small_photo = len(_compress(photo, level=75, extreme="true", image_level=100))
+    assert small_photo < best_photo
+
+    # Barra do texto: mede a rasterizacao direto (num PDF so de texto o servico
+    # devolve o "Leve", que e menor, e nao haveria imagem para comparar)
+    from app.services.compressor import CompressorService, raster_params
+    tmp = UPLOADS_DIR / ("d" * 32)
+    tmp.mkdir(parents=True, exist_ok=True)
+    try:
+        src = tmp / "in.pdf"
+        src.write_bytes(make_pdf(2).getvalue())
+        widths = []
+        for i, lvl in enumerate((0, 100)):
+            out = CompressorService._rasterize(src, tmp / f"r{i}.pdf", raster_params(lvl, 50))
+            doc = fitz.open(str(out))
+            widths.append(fitz.Pixmap(doc, doc[0].get_images()[0][0]).width)
+            assert [round(p.rect.width) for p in doc] == [A4[0], A4[0]]
+            doc.close()
+        assert widths[1] < widths[0], widths    # mais compressao = menos pixels
+    finally:
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_compress_invalid_levels():
+    pdf = make_pdf(1).getvalue()
+    for fields in ({"level": "150"}, {"level": "-1"}, {"level": "abc"},
+                   {"level": "50", "image_level": "101"}):
+        r = client.post("/api/compress", data=fields, files=[("file", ("f.pdf", pdf, "application/pdf"))])
+        assert r.status_code == 400, fields
+        assert "Nivel de compressao" in r.json()["error"]
 
 def test_extract_invalid_ranges():
     cases = {
