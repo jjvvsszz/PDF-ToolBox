@@ -9,7 +9,7 @@ são processados localmente e apagados logo após o download.
 | Mesclagem visual | `/detailed-merge` | Miniaturas de todas as páginas; reordenar, excluir e salvar |
 | Dividir | `/split` | Um PDF por página (ZIP) |
 | Extrair páginas | `/extract` | Intervalos como `1-3,5,8-`, com prévia |
-| Comprimir | `/compress` | Leve (sem perda), Normal (recomprime imagens) ou Extremo (rasteriza) |
+| Comprimir | `/compress` | Barra de 0 (sem perda) a 100 (recomprime as imagens cada vez mais forte); modo extremo rasteriza, com barras separadas para texto e fotos |
 | Remover páginas em branco | `/remove-blanks` | Detecção por brilho/variação com sensibilidade ajustável e prévia |
 | PDF → Imagens | `/pdf-to-images` | PNG ou JPG, 200 dpi |
 | Imagens → PDF | `/images-to-pdf` | Respeita a rotação EXIF; transparência vira fundo branco |
@@ -102,6 +102,17 @@ app/
 - **Segurança**: CSRF compara `Origin`/`Referer` com `Host` (ou `X-Forwarded-Host`); CORS
   desligado por padrão; nomes de arquivo escapados no frontend.
 
+### Compressão
+
+| Modo | Barra | Efeito (0 → 100) |
+|---|---|---|
+| Normal | `level` | 0 = só otimização sem perda (pikepdf). 1–100: imagens embutidas em JPEG, qualidade 85 → 25 e no máximo 4000 → 1200 px. Texto e vetores intactos. O antigo "Normal" (JPEG 50, 2000 px) fica entre 60 e 70 |
+| Extremo | `level` (texto) | Páginas rasterizadas; as de texto viram preto e branco (CCITT G4) a 300 → 100 dpi |
+| Extremo | `image_level` (fotos) | Páginas com foto (detecção por saturação/variância) em JPEG qualidade 60 → 10, largura 1600 → 400 px |
+
+O resultado nunca é maior que o da otimização sem perda: o serviço gera os dois e devolve o
+menor. Os padrões do modo extremo (texto 75, fotos 85) equivalem ao antigo perfil fixo.
+
 ## API
 
 Todas as rotas `POST` recebem `multipart/form-data`. Sucesso devolve o arquivo (PDF, ZIP,
@@ -111,7 +122,7 @@ imagem ou DOCX) com `Content-Disposition`; erro devolve `{"error": "mensagem"}`.
 |---|---|---|
 | `POST /api/merge` | `files` (vários) | PDF |
 | `POST /api/split` | `file` | ZIP (ou PDF se tiver 1 página) |
-| `POST /api/compress` | `file`, `level` = `light`\|`normal`\|`extreme` | PDF |
+| `POST /api/compress` | `file`, `level` (0–100, padrão 60), `extreme` (`true`/`false`), `image_level` (0–100, padrão 85; só no modo extremo). Aceita também `level=light`\|`normal`\|`extreme` | PDF |
 | `POST /api/extract` | `file`, `pages` (ex.: `1-3,5,8-`) | PDF |
 | `POST /api/extract/preview` | `file`, `pages` | JSON com miniaturas |
 | `POST /api/pdf-to-images` | `file`, `format` = `png`\|`jpg` | imagem ou ZIP |

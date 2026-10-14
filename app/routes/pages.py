@@ -1,12 +1,25 @@
+import hashlib
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from jinja2 import Environment, FileSystemLoader
 
-from app.config import TEMPLATES_DIR
+from app.config import STATIC_DIR, TEMPLATES_DIR
 
 router = APIRouter()
 
 env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True)
+
+
+def _asset_version() -> str:
+    """Hash do CSS/JS: muda a URL quando os arquivos mudam, evitando cache antigo no navegador."""
+    digest = hashlib.sha256()
+    for rel in ("css/style.css", "js/main.js"):
+        digest.update((STATIC_DIR / rel).read_bytes())
+    return digest.hexdigest()[:10]
+
+
+env.globals["asset_version"] = _asset_version()
 
 
 def render(name: str, request: Request):

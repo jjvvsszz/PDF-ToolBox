@@ -418,3 +418,68 @@ input[type="file"] {
     color: #8892b0;
     line-height: 1.4;
 }
+
+/* Barra deslizante e checkbox da compressao */
+.range {
+    width: 100%;
+    accent-color: #e94560;
+    cursor: pointer;
+}
+
+.range-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: #8892b0;
+    margin-top: 0.15rem;
+}
+
+.hint {
+    color: #8892b0;
+    font-size: 0.8rem;
+    margin-top: 0.4rem;
+    line-height: 1.4;
+}
+
+.check-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+    background: #16213e;
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.check-card:hover {
+    border-color: #3a6ba5;
+}
+
+.check-card.selected {
+    border-color: #e94560;
+    background: rgba(233, 69, 96, 0.08);
+}
+
+.check-card input[type="checkbox"] {
+    accent-color: #e94560;
+    width: 1.1rem;
+    height: 1.1rem;
+    margin-top: 0.2rem;
+    flex-shrink: 0;
+}
+
+.check-card .level-name {
+    display: block;
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.check-card .level-desc {
+    display: block;
+    font-size: 0.8rem;
+    color: #8892b0;
+    line-height: 1.4;
+}

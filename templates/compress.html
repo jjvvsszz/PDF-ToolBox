@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-header">
     <h1>📦 Comprimir PDF</h1>
-    <p>Reduza o tamanho do arquivo PDF. Escolha o nível abaixo conforme sua necessidade.</p>
+    <p>Reduza o tamanho do arquivo PDF. Ajuste a barra: no mínimo nada perde qualidade; quanto mais à direita, menor o arquivo.</p>
 </div>
 
 <div class="upload-area" id="upload-area">
@@ -16,27 +16,26 @@
 <div class="file-list" id="file-list"></div>
 
 <div class="form-group">
-    <label for="level-select">Nível de compressão</label>
-    <div class="level-cards" id="level-cards">
-        <label class="level-card" for="level-light">
-            <input type="radio" name="level" value="light" id="level-light">
-            <span class="level-icon">🌿</span>
-            <span class="level-name">Leve</span>
-            <span class="level-desc">Redução sutil (~10-25%). Zero perda de qualidade — apenas limpa metadados e recompacta streams. Ideal para documentos que precisam ficar idênticos.</span>
-        </label>
-        <label class="level-card selected" for="level-normal">
-            <input type="radio" name="level" value="normal" id="level-normal" checked>
-            <span class="level-icon">⚖️</span>
-            <span class="level-name">Normal</span>
-            <span class="level-desc">Redução moderada (~40-60%). Recompressão inteligente das imagens embutidas no PDF. Texto e vetores permanecem intactos. Bom equilíbrio.</span>
-        </label>
-        <label class="level-card" for="level-extreme">
-            <input type="radio" name="level" value="extreme" id="level-extreme">
-            <span class="level-icon">🔥</span>
-            <span class="level-name">Extremo</span>
-            <span class="level-desc">Máxima compressão (~70-95%). Rasteriza todas as páginas e aplica detecção inteligente de fotos vs texto. Texto deixa de ser selecionável.</span>
-        </label>
-    </div>
+    <label for="level-range"><span id="level-label">Nível de compressão</span>: <strong id="level-value">60</strong></label>
+    <input type="range" class="range" id="level-range" min="0" max="100" step="5" value="60">
+    <div class="range-scale"><span id="level-scale-min">Leve (sem perda)</span><span id="level-scale-max">Máxima</span></div>
+    <p class="hint" id="level-hint"></p>
+</div>
+
+<label class="check-card" for="extreme-check">
+    <input type="checkbox" id="extreme-check">
+    <span class="level-icon">🔥</span>
+    <span>
+        <span class="level-name">Modo extremo</span>
+        <span class="level-desc">Rasteriza todas as páginas e detecta automaticamente o que é texto (vira preto e branco) e o que é foto (vira JPEG). Redução máxima, mas o texto deixa de ser selecionável.</span>
+    </span>
+</label>
+
+<div class="form-group" id="image-group" hidden>
+    <label for="image-range">Compressão das fotos: <strong id="image-value">85</strong></label>
+    <input type="range" class="range" id="image-range" min="0" max="100" step="5" value="85">
+    <div class="range-scale"><span>Melhor qualidade</span><span>Menor arquivo</span></div>
+    <p class="hint" id="image-hint"></p>
 </div>
 
 <div class="actions">
@@ -77,12 +76,53 @@ input.addEventListener("change", () => {
     input.value = "";
 });
 
-document.querySelectorAll("input[name='level']").forEach(radio => {
-    radio.addEventListener("change", () => {
-        document.querySelectorAll(".level-card").forEach(c => c.classList.remove("selected"));
-        radio.closest(".level-card").classList.add("selected");
-    });
+// Mesmas formulas de app/services/compressor.py (recompress_params / raster_params)
+const lerp = (start, end, level) => Math.round(start + (end - start) * level / 100);
+
+const levelRange = document.getElementById("level-range");
+const imageRange = document.getElementById("image-range");
+const extremeCheck = document.getElementById("extreme-check");
+// Cada modo lembra a propria posicao da barra principal
+const savedLevels = { normal: 60, extreme: 75 };
+
+function updateCompressUI() {
+    const extreme = extremeCheck.checked;
+    const level = Number(levelRange.value);
+    const imageLevel = Number(imageRange.value);
+    document.getElementById("level-value").textContent = level;
+    document.getElementById("image-value").textContent = imageLevel;
+    document.getElementById("image-group").hidden = !extreme;
+    document.querySelector(".check-card").classList.toggle("selected", extreme);
+
+    const hint = document.getElementById("level-hint");
+    if (extreme) {
+        document.getElementById("level-label").textContent = "Compressão do texto";
+        document.getElementById("level-scale-min").textContent = "Mais nítido";
+        document.getElementById("level-scale-max").textContent = "Menor arquivo";
+        hint.textContent = `Páginas de texto rasterizadas a ${lerp(300, 100, level)} dpi, em preto e branco.`;
+        document.getElementById("image-hint").textContent =
+            `Páginas com fotos em JPEG qualidade ${lerp(60, 10, imageLevel)}, até ${lerp(1600, 400, imageLevel)} px de largura.`;
+    } else {
+        document.getElementById("level-label").textContent = "Nível de compressão";
+        document.getElementById("level-scale-min").textContent = "Leve (sem perda)";
+        document.getElementById("level-scale-max").textContent = "Máxima";
+        if (level === 0) {
+            hint.textContent = "Sem perda de qualidade: só limpa e recompacta a estrutura do PDF.";
+        } else {
+            const ref = level >= 60 && level <= 70 ? " (equivale ao antigo \"Normal\")" : "";
+            hint.textContent = `Imagens embutidas em JPEG qualidade ${lerp(85, 25, level)}, até ${lerp(4000, 1200, level)} px${ref}. Texto e vetores ficam intactos.`;
+        }
+    }
+}
+
+extremeCheck.addEventListener("change", () => {
+    savedLevels[extremeCheck.checked ? "normal" : "extreme"] = Number(levelRange.value);
+    levelRange.value = savedLevels[extremeCheck.checked ? "extreme" : "normal"];
+    updateCompressUI();
 });
+levelRange.addEventListener("input", updateCompressUI);
+imageRange.addEventListener("input", updateCompressUI);
+updateCompressUI();
 
 function processCompress() {
     if (selectedFiles.length === 0) {
@@ -92,10 +132,11 @@ function processCompress() {
         status.style.display = "block";
         return;
     }
-    const level = document.querySelector("input[name='level']:checked").value;
     const fd = new FormData();
     fd.append("file", selectedFiles[0]);
-    fd.append("level", level);
+    fd.append("level", levelRange.value);
+    fd.append("extreme", extremeCheck.checked ? "true" : "false");
+    fd.append("image_level", imageRange.value);
     uploadForm("/api/compress", fd, "process-btn");
 }
 </script>
